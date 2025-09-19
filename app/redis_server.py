@@ -196,14 +196,32 @@ class RedisServer:
             writer.write(psync_command.encode())
             await writer.drain()
             
-            # Read response
+            # Read PSYNC response
             response = await reader.read(1024)
             print(f"Master response to PSYNC: {response.decode()}")
             
-            # Keep connection alive for replication
-            # In a full implementation, this would handle ongoing replication
-            writer.close()
-            await writer.wait_closed()
+            # After PSYNC, the master sends an RDB file
+            # Read the RDB file length first
+            rdb_length_line = await reader.readline()
+            if rdb_length_line.startswith(b'$'):
+                # Parse the length
+                rdb_length = int(rdb_length_line[1:-2])  # Remove $ and \r\n
+                
+                # Read the RDB file content
+                rdb_content = await reader.read(rdb_length)
+                print(f"Received RDB file of {len(rdb_content)} bytes")
+                
+                # The RDB file is now loaded, we can continue with replication
+                # In a full implementation, we would parse and load the RDB file
+                
+                # Keep connection alive for ongoing replication
+                # For now, we'll close it as the handshake is complete
+                writer.close()
+                await writer.wait_closed()
+            else:
+                print("Unexpected response format after PSYNC")
+                writer.close()
+                await writer.wait_closed()
             
         except Exception as e:
             print(f"Replication handshake failed: {e}")
