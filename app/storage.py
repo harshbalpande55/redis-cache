@@ -391,7 +391,11 @@ class InMemoryStorage(StorageBackend):
         # Parse start and end IDs
         def parse_id(entry_id: str) -> tuple:
             """Parse entry ID into (time_ms, seq_num) tuple."""
-            if '-' not in entry_id:
+            if entry_id == "-":
+                return (0, 0)  # From beginning
+            elif entry_id == "+":
+                return (float('inf'), float('inf'))  # To end
+            elif '-' not in entry_id:
                 raise ValueError("Invalid entry ID format")
             time_part, seq_part = entry_id.split('-', 1)
             return (int(time_part), int(seq_part))
