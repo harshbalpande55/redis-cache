@@ -196,12 +196,12 @@ class RedisServer:
             writer.write(psync_command.encode())
             await writer.drain()
             
-            # Read PSYNC response
-            response = await reader.read(1024)
-            print(f"Master response to PSYNC: {response.decode()}")
+            # Read PSYNC response - this contains both FULLRESYNC and RDB file
+            # First, read the FULLRESYNC response line
+            fullresync_line = await reader.readline()
+            print(f"Master response to PSYNC: {fullresync_line.decode().strip()}")
             
-            # After PSYNC, the master sends an RDB file
-            # Read the RDB file length first
+            # Then read the RDB file length line
             rdb_length_line = await reader.readline()
             if rdb_length_line.startswith(b'$'):
                 # Parse the length
