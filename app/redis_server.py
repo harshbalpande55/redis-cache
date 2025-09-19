@@ -3,6 +3,7 @@ Main Redis server implementation.
 Orchestrates all components using proper separation of concerns.
 """
 import asyncio
+import time
 from typing import Optional, List
 
 from .storage import StorageBackend, InMemoryStorage
@@ -103,6 +104,7 @@ class RedisServer:
         for i, (reader, w, old_offset) in enumerate(self.connected_replicas):
             if w == writer:
                 self.connected_replicas[i] = (reader, w, offset)
+                print(f"Updated replica offset to {offset} (was {old_offset})")
                 break
     
     async def propagate_command_to_replicas(self, command: str, args: List[str]) -> None:
@@ -219,6 +221,9 @@ class RedisServer:
                 print("Starting replication loop...")
                 try:
                     buffer = b""
+                    last_ack_time = time.time()
+                    ack_interval = 1.0  # Send ACK every 1 second
+                    
                     while True:
                         # Read data from master
                         data = await reader.read(1024)
@@ -245,6 +250,17 @@ class RedisServer:
                                         command_bytes += f"${len(part)}\r\n{part}\r\n"
                                     
                                     buffer = buffer[len(command_bytes.encode()):]
+                                    
+                                    # Send periodic ACK to master
+                                    current_time = time.time()
+                                    if current_time - last_ack_time >= ack_interval:
+                                        # Send REPLCONF ACK with current replication offset
+                                        # For now, we'll use a simple offset counter
+                                        ack_command = f"*3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n$1\r\n0\r\n"
+                                        writer.write(ack_command.encode())
+                                        await writer.drain()
+                                        last_ack_time = current_time
+                                        print("Sent ACK to master")
                                 else:
                                     # Incomplete command, wait for more data
                                     break
