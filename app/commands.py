@@ -191,3 +191,21 @@ class LrangeCommand(Command):
     
     def get_name(self) -> str:
         return "LRANGE"
+
+
+class LpushCommand(Command):
+    """LPUSH command implementation."""
+    
+    def execute(self, args: List[str]) -> bytes:
+        if len(args) < 2:
+            return self.formatter.error("wrong number of arguments for 'lpush' command")
+        
+        key = args[0]
+        values = args[1:]
+        
+        # Use the lpush method from storage
+        new_length = self.storage.lpush(key, *values)
+        return self.formatter.integer(new_length)
+    
+    def get_name(self) -> str:
+        return "LPUSH"

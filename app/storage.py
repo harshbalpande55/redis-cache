@@ -44,6 +44,11 @@ class StorageBackend(ABC):
     def lrange(self, key: str, start: int, stop: int) -> Optional[List[str]]:
         """Get a range of elements from a list. Returns None if key doesn't exist or is not a list."""
         pass
+    
+    @abstractmethod
+    def lpush(self, key: str, *values: str) -> int:
+        """Push values to the left of a list. Returns the new length of the list."""
+        pass
 
 class InMemoryStorage(StorageBackend):
     """In-memory storage implementation with expiration support."""
@@ -196,3 +201,42 @@ class InMemoryStorage(StorageBackend):
         
         # Return the range (stop is inclusive)
         return list_data[start:stop + 1]
+    
+    def lpush(self, key: str, *values: str) -> int:
+        """Push values to the left of a list. Returns the new length of the list."""
+        if key not in self._data:
+            # Create new list
+            self._data[key] = {
+                "value": list(values),
+                "type": "list",
+                "expires_at": None
+            }
+            return len(values)
+        
+        entry = self._data[key]
+        
+        # Check if the key has expired
+        if entry["expires_at"] is not None and time.time() > entry["expires_at"]:
+            # Key has expired, create new list
+            self._data[key] = {
+                "value": list(values),
+                "type": "list",
+                "expires_at": None
+            }
+            return len(values)
+        
+        # If key exists but is not a list, convert it to a list
+        if entry["type"] != "list":
+            # Convert existing value to list and prepend new values
+            existing_list = [str(entry["value"])] + list(values)
+            self._data[key] = {
+                "value": existing_list,
+                "type": "list",
+                "expires_at": entry["expires_at"]
+            }
+            return len(existing_list)
+        
+        # Key exists and is a list, prepend values
+        entry["value"] = list(values) + entry["value"]
+        return len(entry["value"])
+    
