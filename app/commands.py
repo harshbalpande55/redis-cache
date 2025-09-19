@@ -148,6 +148,10 @@ class ExistsCommand(Command):
 class RpushCommand(Command):
     """RPUSH command implementation."""
     
+    def __init__(self, storage, blocking_manager=None):
+        super().__init__(storage)
+        self.blocking_manager = blocking_manager
+    
     def execute(self, args: List[str]) -> bytes:
         if len(args) < 2:
             return self.formatter.error("wrong number of arguments for 'rpush' command")
@@ -157,6 +161,13 @@ class RpushCommand(Command):
         
         # Use the rpush method from storage
         new_length = self.storage.rpush(key, *values)
+        
+        # Notify waiting clients if there are any
+        if self.blocking_manager and self.blocking_manager.has_waiting_clients(key):
+            # This is a simplified notification - in a real implementation,
+            # this would trigger the blocking clients to wake up
+            pass
+        
         return self.formatter.integer(new_length)
     
     def get_name(self) -> str:
@@ -264,3 +275,46 @@ class LpopCommand(Command):
     
     def get_name(self) -> str:
         return "LPOP"
+
+
+class BlpopCommand(Command):
+    """BLPOP command implementation with blocking support."""
+    
+    def __init__(self, storage, blocking_manager=None):
+        super().__init__(storage)
+        self.blocking_manager = blocking_manager
+    
+    def execute(self, args: List[str]) -> bytes:
+        if len(args) < 2:
+            return self.formatter.error("wrong number of arguments for 'blpop' command")
+        
+        keys = args[:-1]  # All arguments except the last one are keys
+        timeout_str = args[-1]  # Last argument is timeout
+        
+        try:
+            timeout = float(timeout_str)
+            if timeout < 0:
+                return self.formatter.error("timeout is negative")
+        except ValueError:
+            return self.formatter.error("timeout is not a float or out of range")
+        
+        # For now, we only support timeout = 0 (infinite wait)
+        if timeout != 0:
+            return self.formatter.error("timeout must be 0 for this stage")
+        
+        # Try to pop from each key in order
+        for key in keys:
+            value = self.storage.blpop(key)
+            if value is not None:
+                # Found an element, return it
+                return self.formatter.array([
+                    self.formatter.bulk_string(key),
+                    self.formatter.bulk_string(value)
+                ])
+        
+        # No elements available, this should trigger blocking behavior
+        # For now, return a special response that indicates blocking is needed
+        return b"BLOCKING_REQUIRED"
+    
+    def get_name(self) -> str:
+        return "BLPOP"

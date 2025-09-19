@@ -59,6 +59,11 @@ class StorageBackend(ABC):
     def lpop(self, key: str, count: int = 1) -> Optional[List[str]]:
         """Pop values from the left of a list. Returns None if key doesn't exist or is not a list."""
         pass
+    
+    @abstractmethod
+    def blpop(self, key: str) -> Optional[str]:
+        """Pop a value from the left of a list. Returns None if key doesn't exist or is not a list."""
+        pass
 
 class InMemoryStorage(StorageBackend):
     """In-memory storage implementation with expiration support."""
@@ -291,4 +296,12 @@ class InMemoryStorage(StorageBackend):
             popped_elements.append(entry["value"].pop(0))
         
         return popped_elements
+    
+    def blpop(self, key: str) -> Optional[str]:
+        """Pop a value from the left of a list. Returns None if key doesn't exist or is not a list."""
+        # BLPOP is essentially the same as LPOP with count=1, but returns a single string
+        result = self.lpop(key, 1)
+        if result is None or not result:
+            return None
+        return result[0]
     

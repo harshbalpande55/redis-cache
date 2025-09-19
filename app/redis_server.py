@@ -3,15 +3,16 @@ Main Redis server implementation.
 Orchestrates all components using proper separation of concerns.
 """
 import asyncio
-from typing import Optional
+from typing import Optional, List
 
 from .storage import StorageBackend, InMemoryStorage
 from .protocol import RedisProtocolParser, RedisResponseFormatter
 from .command_registry import CommandRegistry
+from .blocking_manager import BlockingManager
 from .commands import (
     PingCommand, EchoCommand, SetCommand, GetCommand, 
     RpushCommand, DelCommand, ExistsCommand, LrangeCommand, LpushCommand,
-    LlenCommand, LpopCommand
+    LlenCommand, LpopCommand, BlpopCommand
 )
 
 
@@ -26,6 +27,9 @@ class RedisServer:
         self.protocol_parser = RedisProtocolParser()
         self.response_formatter = RedisResponseFormatter()
         
+        # Initialize blocking manager
+        self.blocking_manager = BlockingManager()
+        
         # Initialize command registry
         self.command_registry = CommandRegistry()
         self._register_commands()
@@ -37,11 +41,12 @@ class RedisServer:
             EchoCommand(self.storage),
             SetCommand(self.storage),
             GetCommand(self.storage),
-            RpushCommand(self.storage),
+            RpushCommand(self.storage, self.blocking_manager),
             LrangeCommand(self.storage),
             LpushCommand(self.storage),
             LlenCommand(self.storage),
             LpopCommand(self.storage),
+            BlpopCommand(self.storage, self.blocking_manager),
             DelCommand(self.storage),
             ExistsCommand(self.storage),
         ]
@@ -67,13 +72,20 @@ class RedisServer:
                     if command is None:
                         # Invalid command format
                         response = self.response_formatter.error("invalid command format")
+                        writer.write(response)
+                        await writer.drain()
                     else:
                         # Execute the command
                         response = self.command_registry.execute_command(command, args)
-                    
-                    # Send response to client
-                    writer.write(response)
-                    await writer.drain()  # Ensure data is sent
+                        
+                        # Check if this is a blocking command that needs special handling
+                        if response == b"BLOCKING_REQUIRED" and command == "BLPOP":
+                            # Handle blocking BLPOP
+                            await self._handle_blocking_blpop(writer, args)
+                        else:
+                            # Send normal response
+                            writer.write(response)
+                            await writer.drain()
                     
                 except ConnectionResetError:
                     # Client disconnected unexpectedly
@@ -86,8 +98,43 @@ class RedisServer:
                     break
                     
         finally:
+            # Clean up blocking client if it exists
+            self.blocking_manager.remove_blocking_client(writer)
             writer.close()
             await writer.wait_closed()
+    
+    async def _handle_blocking_blpop(self, writer: asyncio.StreamWriter, args: List[str]) -> None:
+        """Handle blocking BLPOP command."""
+        keys = args[:-1]  # All arguments except the last one are keys
+        
+        # Add client to blocking manager
+        self.blocking_manager.add_blocking_client(writer, keys, "BLPOP")
+        
+        # Wait for an element to become available
+        # This is a simplified implementation - in a real Redis server,
+        # this would use more sophisticated event handling
+        while True:
+            # Check if any of the keys have elements
+            for key in keys:
+                value = self.storage.blpop(key)
+                if value is not None:
+                    # Found an element, send response to the oldest waiting client
+                    oldest_client = self.blocking_manager.get_oldest_waiting_client(key)
+                    if oldest_client and oldest_client.writer == writer:
+                        # This client gets the element
+                        response = self.response_formatter.array([
+                            self.response_formatter.bulk_string(key),
+                            self.response_formatter.bulk_string(value)
+                        ])
+                        writer.write(response)
+                        await writer.drain()
+                        
+                        # Remove this client from blocking manager
+                        self.blocking_manager.remove_waiting_client(key, oldest_client)
+                        return
+            
+            # No elements available, wait a bit before checking again
+            await asyncio.sleep(0.01)  # Small delay to prevent busy waiting
     
     async def start_server(self, host: str = "localhost", port: int = 6379) -> None:
         """Start the Redis server."""
