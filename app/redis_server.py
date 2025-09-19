@@ -257,21 +257,24 @@ class RedisServer:
                                     for part in [command] + args:
                                         command_bytes += f"${len(part)}\r\n{part}\r\n"
                                     
-                                    # Update replica offset with the command length
-                                    # Count all propagated commands except handshake-specific ones
-                                    if command not in ["PSYNC", "INFO"]:
-                                        replica_offset += len(command_bytes.encode())
-                                    
                                     # Handle REPLCONF GETACK command specially - it needs a response
                                     if command == "REPLCONF" and args and args[0] == "GETACK":
-                                        # Send ACK response to master with current offset
+                                        # Send ACK response to master with current offset (before processing this command)
                                         ack_response = f"*3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n${len(str(replica_offset))}\r\n{replica_offset}\r\n"
                                         writer.write(ack_response.encode())
                                         await writer.drain()
                                         print(f"Sent ACK response to GETACK command with offset {replica_offset}")
+                                        
+                                        # Now update offset to include this REPLCONF command
+                                        replica_offset += len(command_bytes.encode())
                                     else:
                                         # Execute other commands silently (no response)
                                         self.command_registry.execute_command(command, args)
+                                        
+                                        # Update replica offset with the command length
+                                        # Count all propagated commands except handshake-specific ones
+                                        if command not in ["PSYNC", "INFO"]:
+                                            replica_offset += len(command_bytes.encode())
                                     
                                     # Remove the processed command from buffer
                                     buffer = buffer[len(command_bytes.encode()):]
