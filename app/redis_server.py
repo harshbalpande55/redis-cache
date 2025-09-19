@@ -47,7 +47,7 @@ class RedisServer:
         self.master_repl_offset = 0  # Replication offset
         
         # Connected replicas for command propagation
-        self.connected_replicas = []  # List of (reader, writer) tuples for connected replicas
+        self.connected_replicas = []  # List of (reader, writer, offset) tuples for connected replicas
     
     def _register_commands(self) -> None:
         """Register all available commands."""
@@ -86,13 +86,20 @@ class RedisServer:
     
     def add_replica_connection(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         """Add a replica connection for command propagation."""
-        self.connected_replicas.append((reader, writer))
+        self.connected_replicas.append((reader, writer, 0))  # Start with offset 0
         print(f"Added replica connection. Total replicas: {len(self.connected_replicas)}")
     
     def remove_replica_connection(self, writer: asyncio.StreamWriter) -> None:
         """Remove a replica connection."""
-        self.connected_replicas = [(r, w) for r, w in self.connected_replicas if w != writer]
+        self.connected_replicas = [(r, w, o) for r, w, o in self.connected_replicas if w != writer]
         print(f"Removed replica connection. Total replicas: {len(self.connected_replicas)}")
+    
+    def update_replica_offset(self, writer: asyncio.StreamWriter, offset: int) -> None:
+        """Update the replication offset for a specific replica."""
+        for i, (reader, w, old_offset) in enumerate(self.connected_replicas):
+            if w == writer:
+                self.connected_replicas[i] = (reader, w, offset)
+                break
     
     async def propagate_command_to_replicas(self, command: str, args: List[str]) -> None:
         """Propagate a command to all connected replicas."""
@@ -106,7 +113,7 @@ class RedisServer:
             resp_command += f"${len(part)}\r\n{part}\r\n"
         
         # Send to all replicas
-        for reader, writer in self.connected_replicas.copy():
+        for reader, writer, offset in self.connected_replicas.copy():
             try:
                 writer.write(resp_command.encode())
                 await writer.drain()
@@ -236,6 +243,16 @@ class RedisServer:
                             is_replica_connection = True
                             # Add this connection to replica connections
                             self.add_replica_connection(reader, writer)
+                        elif command == "REPLCONF" and len(args) > 0 and args[0].lower() == "ack":
+                            # Handle REPLCONF ACK command and update replica offset
+                            response = self.command_registry.execute_command(command, args)
+                            # Update the replica's offset
+                            if len(args) == 2:
+                                try:
+                                    replica_offset = int(args[1])
+                                    self.update_replica_offset(writer, replica_offset)
+                                except ValueError:
+                                    pass  # Invalid offset, ignore
                         else:
                             # Regular command execution
                             if self.client_transactions[client_id]['in_transaction']:

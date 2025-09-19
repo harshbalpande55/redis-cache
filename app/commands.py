@@ -748,6 +748,22 @@ class ReplconfCommand(Command):
             # Acknowledge the replica's capabilities
             return self.formatter.simple_string("OK")
         
+        elif subcommand == "ack":
+            if len(args) != 2:
+                return self.formatter.error("wrong number of arguments for 'replconf ack' command")
+            
+            try:
+                replica_offset = int(args[1])
+                # Update replica's replication offset
+                if self.server:
+                    # Note: In a real implementation, we would need to identify which replica
+                    # is sending this ACK. For now, we'll just acknowledge the ACK.
+                    # The server would need to track which connection sent this command.
+                    pass
+                return self.formatter.simple_string("OK")
+            except ValueError:
+                return self.formatter.error("invalid offset value for 'replconf ack' command")
+        
         else:
             return self.formatter.error(f"unknown subcommand '{subcommand}' for 'replconf' command")
     
@@ -793,9 +809,6 @@ class PsyncCommand(Command):
         rdb_response = f"${rdb_length}\r\n".encode() + empty_rdb
         
         return fullresync_bytes + rdb_response
-    
-    def get_name(self) -> str:
-        return "PSYNC"
     
     def get_name(self) -> str:
         return "PSYNC"
