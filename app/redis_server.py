@@ -12,7 +12,7 @@ from .blocking_manager import BlockingManager
 from .commands import (
     PingCommand, EchoCommand, SetCommand, GetCommand, 
     RpushCommand, DelCommand, ExistsCommand, LrangeCommand, LpushCommand,
-    LlenCommand, LpopCommand, BlpopCommand, XaddCommand, XrangeCommand, XreadCommand, TypeCommand, IncrCommand, MultiCommand, ExecCommand
+    LlenCommand, LpopCommand, BlpopCommand, XaddCommand, XrangeCommand, XreadCommand, TypeCommand, IncrCommand
 )
 
 
@@ -33,6 +33,9 @@ class RedisServer:
         # Initialize command registry
         self.command_registry = CommandRegistry()
         self._register_commands()
+        
+        # Transaction state management - track per client
+        self.client_transactions = {}  # client_id -> {'in_transaction': bool, 'commands': list}
     
     def _register_commands(self) -> None:
         """Register all available commands."""
@@ -54,8 +57,7 @@ class RedisServer:
             XreadCommand(self.storage),
             TypeCommand(self.storage),
             IncrCommand(self.storage),
-            MultiCommand(self.storage),
-            ExecCommand(self.storage),
+            # MULTI and EXEC are now handled directly in handle_client
         ]
         
         for command in commands:
@@ -63,6 +65,11 @@ class RedisServer:
     
     async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         """Handle a single client connection using async I/O."""
+        # Get client identifier for transaction tracking
+        client_id = id(writer)
+        if client_id not in self.client_transactions:
+            self.client_transactions[client_id] = {'in_transaction': False, 'commands': []}
+        
         try:
             # Loop to handle multiple commands on the same connection
             while True:
@@ -82,8 +89,36 @@ class RedisServer:
                         writer.write(response)
                         await writer.drain()
                     else:
-                        # Execute the command
-                        response = self.command_registry.execute_command(command, args)
+                        # Handle transaction commands
+                        if command == "MULTI":
+                            self.client_transactions[client_id]['in_transaction'] = True
+                            self.client_transactions[client_id]['commands'] = []
+                            response = self.response_formatter.simple_string("OK")
+                        elif command == "EXEC":
+                            if self.client_transactions[client_id]['in_transaction']:
+                                # Execute all queued commands
+                                results = []
+                                for cmd, cmd_args in self.client_transactions[client_id]['commands']:
+                                    cmd_response = self.command_registry.execute_command(cmd, cmd_args)
+                                    results.append(cmd_response)
+                                
+                                # Reset transaction state
+                                self.client_transactions[client_id]['in_transaction'] = False
+                                self.client_transactions[client_id]['commands'] = []
+                                
+                                # Return array of results
+                                response = self.response_formatter.array(results)
+                            else:
+                                response = self.response_formatter.error("ERR EXEC without MULTI")
+                        else:
+                            # Regular command execution
+                            if self.client_transactions[client_id]['in_transaction']:
+                                # Queue command for later execution
+                                self.client_transactions[client_id]['commands'].append((command, args))
+                                response = self.response_formatter.simple_string("QUEUED")
+                            else:
+                                # Execute command immediately
+                                response = self.command_registry.execute_command(command, args)
                         
                         # Check if this is a blocking command that needs special handling
                         if response.startswith(b"BLOCKING_REQUIRED"):
@@ -153,6 +188,11 @@ class RedisServer:
         finally:
             # Clean up blocking client if it exists
             self.blocking_manager.remove_blocking_client(writer)
+            
+            # Clean up transaction state for this client
+            if client_id in self.client_transactions:
+                del self.client_transactions[client_id]
+            
             writer.close()
             await writer.wait_closed()
     
