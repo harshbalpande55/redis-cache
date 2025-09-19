@@ -240,8 +240,17 @@ class RedisServer:
                                 command, args = self.protocol_parser.parse_command(buffer)
                                 if command:
                                     print(f"Received command from master: {command} {' '.join(args)}")
-                                    # Execute command silently (no response)
-                                    self.command_registry.execute_command(command, args)
+                                    
+                                    # Handle REPLCONF GETACK command specially - it needs a response
+                                    if command == "REPLCONF" and args and args[0] == "GETACK":
+                                        # Send ACK response to master
+                                        ack_response = f"*3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n$1\r\n0\r\n"
+                                        writer.write(ack_response.encode())
+                                        await writer.drain()
+                                        print("Sent ACK response to GETACK command")
+                                    else:
+                                        # Execute other commands silently (no response)
+                                        self.command_registry.execute_command(command, args)
                                     
                                     # Remove the processed command from buffer
                                     # Calculate the length of the processed command
