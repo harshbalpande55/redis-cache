@@ -1,6 +1,8 @@
 import asyncio
+import time
 
-# Global storage for key-value pairs
+# Global storage for key-value pairs with expiration
+# Format: {key: {"value": value, "expires_at": timestamp}}
 storage = {}
 
 
@@ -65,11 +67,27 @@ def handle_ping_command(args):
 
 def handle_set_command(args):
     """Handle SET command"""
-    if len(args) != 2:
+    if len(args) < 2:
         return b"-ERR wrong number of arguments for 'set' command\r\n"
     
-    key, value = args
-    storage[key] = value
+    key = args[0]
+    value = args[1]
+    
+    # Check for PX option (expiration in milliseconds)
+    expires_at = None
+    if len(args) == 4 and args[2].upper() == "PX":
+        try:
+            px_milliseconds = int(args[3])
+            expires_at = time.time() + (px_milliseconds / 1000.0)  # Convert ms to seconds
+        except ValueError:
+            return b"-ERR value is not an integer or out of range\r\n"
+    
+    # Store the key-value pair with optional expiration
+    storage[key] = {
+        "value": value,
+        "expires_at": expires_at
+    }
+    
     return b"+OK\r\n"
 
 def handle_get_command(args):
@@ -79,7 +97,16 @@ def handle_get_command(args):
     
     key = args[0]
     if key in storage:
-        value = storage[key]
+        entry = storage[key]
+        
+        # Check if the key has expired
+        if entry["expires_at"] is not None and time.time() > entry["expires_at"]:
+            # Key has expired, remove it and return null
+            del storage[key]
+            return b"$-1\r\n"
+        
+        # Key exists and hasn't expired
+        value = entry["value"]
         return f"${len(value)}\r\n{value}\r\n".encode('utf-8')
     else:
         return b"$-1\r\n"  # Redis null response for non-existent keys
