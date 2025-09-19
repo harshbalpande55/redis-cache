@@ -215,9 +215,27 @@ class RedisServer:
                 # In a full implementation, we would parse and load the RDB file
                 
                 # Keep connection alive for ongoing replication
-                # For now, we'll close it as the handshake is complete
-                writer.close()
-                await writer.wait_closed()
+                # Start a replication loop to receive commands from master
+                print("Starting replication loop...")
+                try:
+                    while True:
+                        # Read commands from master
+                        data = await reader.read(1024)
+                        if not data:
+                            print("Master disconnected")
+                            break
+                        
+                        # Parse and execute the command silently (no response to master)
+                        command, args = self.protocol_parser.parse_command(data)
+                        if command:
+                            print(f"Received command from master: {command} {' '.join(args)}")
+                            # Execute command silently (no response)
+                            self.command_registry.execute_command(command, args)
+                except Exception as e:
+                    print(f"Replication loop error: {e}")
+                finally:
+                    writer.close()
+                    await writer.wait_closed()
             else:
                 print("Unexpected response format after PSYNC")
                 writer.close()
