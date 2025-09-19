@@ -161,3 +161,33 @@ class RpushCommand(Command):
     
     def get_name(self) -> str:
         return "RPUSH"
+
+
+class LrangeCommand(Command):
+    """LRANGE command implementation."""
+    
+    def execute(self, args: List[str]) -> bytes:
+        error = self.validate_args(args, 3)
+        if error:
+            return error
+        
+        key = args[0]
+        try:
+            start = int(args[1])
+            stop = int(args[2])
+        except ValueError:
+            return self.formatter.error("value is not an integer or out of range")
+        
+        # Get the range from storage
+        result = self.storage.lrange(key, start, stop)
+        
+        if result is None:
+            # List doesn't exist, return empty array
+            return self.formatter.array([])
+        
+        # Convert list elements to bulk strings
+        bulk_strings = [self.formatter.bulk_string(item) for item in result]
+        return self.formatter.array(bulk_strings)
+    
+    def get_name(self) -> str:
+        return "LRANGE"

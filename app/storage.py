@@ -39,7 +39,11 @@ class StorageBackend(ABC):
     def get_list(self, key: str) -> Optional[List[str]]:
         """Get a list by key. Returns None if key doesn't exist or is not a list."""
         pass
-
+    
+    @abstractmethod
+    def lrange(self, key: str, start: int, stop: int) -> Optional[List[str]]:
+        """Get a range of elements from a list. Returns None if key doesn't exist or is not a list."""
+        pass
 
 class InMemoryStorage(StorageBackend):
     """In-memory storage implementation with expiration support."""
@@ -157,3 +161,38 @@ class InMemoryStorage(StorageBackend):
         if entry["type"] == "list":
             return entry["value"]
         return None
+
+    def lrange(self, key: str, start: int, stop: int) -> Optional[List[str]]:
+        """Get a range of elements from a list. Returns None if key doesn't exist or is not a list."""
+        if key not in self._data:
+            return None
+        
+        entry = self._data[key]
+        
+        # Check if the key has expired
+        if entry["expires_at"] is not None and time.time() > entry["expires_at"]:
+            del self._data[key]
+            return None
+        
+        # Only return list values
+        if entry["type"] != "list":
+            return None
+        
+        list_data = entry["value"]
+        list_length = len(list_data)
+        
+        # Handle negative indexes (count from the end)
+        if start < 0:
+            start = max(0, list_length + start)
+        if stop < 0:
+            stop = max(0, list_length + stop)
+        
+        # Early returns for invalid ranges
+        if start >= list_length or start > stop:
+            return []
+        
+        # Clamp stop to valid range
+        stop = min(stop, list_length - 1)
+        
+        # Return the range (stop is inclusive)
+        return list_data[start:stop + 1]

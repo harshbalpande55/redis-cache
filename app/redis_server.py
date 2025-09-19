@@ -10,7 +10,7 @@ from .protocol import RedisProtocolParser, RedisResponseFormatter
 from .command_registry import CommandRegistry
 from .commands import (
     PingCommand, EchoCommand, SetCommand, GetCommand, 
-    RpushCommand, DelCommand, ExistsCommand
+    RpushCommand, DelCommand, ExistsCommand, LrangeCommand
 )
 
 
@@ -37,6 +37,7 @@ class RedisServer:
             SetCommand(self.storage),
             GetCommand(self.storage),
             RpushCommand(self.storage),
+            LrangeCommand(self.storage),
             DelCommand(self.storage),
             ExistsCommand(self.storage),
         ]
