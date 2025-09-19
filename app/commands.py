@@ -782,8 +782,8 @@ class PsyncCommand(Command):
         fullresync_response = f"FULLRESYNC {master_replid} {master_repl_offset}"
         
         # Create empty RDB file (Redis Database file format)
-        # Minimal empty RDB file with just the magic string and EOF marker
-        empty_rdb = b"REDIS0009\xfa\x09redis-ver\x054.0.0\xfa\x0aredis-bits\xc0@\xfa\x05ctime\xc2m\x8b\x9f\xc2\xfa\x08used-mem\xc2\xb0\xc4\x10\x00\xfa\x08aof-preamble\xc0\x00\xfe\x00\xfb\x02\x00\x00\xff\x8a\x82\xf8\xe4\x89\x96\x8e"
+        # Very simple empty RDB file - just magic string and EOF
+        empty_rdb = b"REDIS0009\xff\x8a\x82\xf8\xe4\x89\x96\x8e"
         
         # Combine FULLRESYNC response and RDB file
         fullresync_bytes = self.formatter.simple_string(fullresync_response)
