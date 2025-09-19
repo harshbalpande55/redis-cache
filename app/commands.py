@@ -753,3 +753,34 @@ class ReplconfCommand(Command):
     
     def get_name(self) -> str:
         return "REPLCONF"
+
+
+class PsyncCommand(Command):
+    """PSYNC command implementation for Redis replication synchronization."""
+    
+    def __init__(self, storage: StorageBackend, server=None):
+        super().__init__(storage)
+        self.server = server
+    
+    def execute(self, args: List[str]) -> bytes:
+        if len(args) != 2:
+            return self.formatter.error("wrong number of arguments for 'psync' command")
+        
+        replication_id = args[0]
+        offset = args[1]
+        
+        # For now, we'll always respond with FULLRESYNC
+        # This indicates a full synchronization is needed
+        if self.server:
+            master_replid = self.server.master_replid
+            master_repl_offset = self.server.master_repl_offset
+        else:
+            master_replid = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"
+            master_repl_offset = 0
+        
+        # Return FULLRESYNC response
+        response = f"FULLRESYNC {master_replid} {master_repl_offset}"
+        return self.formatter.simple_string(response)
+    
+    def get_name(self) -> str:
+        return "PSYNC"
