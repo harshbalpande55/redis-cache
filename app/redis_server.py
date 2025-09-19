@@ -218,19 +218,39 @@ class RedisServer:
                 # Start a replication loop to receive commands from master
                 print("Starting replication loop...")
                 try:
+                    buffer = b""
                     while True:
-                        # Read commands from master
+                        # Read data from master
                         data = await reader.read(1024)
                         if not data:
                             print("Master disconnected")
                             break
                         
-                        # Parse and execute the command silently (no response to master)
-                        command, args = self.protocol_parser.parse_command(data)
-                        if command:
-                            print(f"Received command from master: {command} {' '.join(args)}")
-                            # Execute command silently (no response)
-                            self.command_registry.execute_command(command, args)
+                        buffer += data
+                        
+                        # Process complete commands from buffer
+                        while buffer:
+                            try:
+                                # Try to parse a command from the buffer
+                                command, args = self.protocol_parser.parse_command(buffer)
+                                if command:
+                                    print(f"Received command from master: {command} {' '.join(args)}")
+                                    # Execute command silently (no response)
+                                    self.command_registry.execute_command(command, args)
+                                    
+                                    # Remove the processed command from buffer
+                                    # Calculate the length of the processed command
+                                    command_bytes = f"*{len([command] + args)}\r\n"
+                                    for part in [command] + args:
+                                        command_bytes += f"${len(part)}\r\n{part}\r\n"
+                                    
+                                    buffer = buffer[len(command_bytes.encode()):]
+                                else:
+                                    # Incomplete command, wait for more data
+                                    break
+                            except Exception as e:
+                                print(f"Error parsing command: {e}")
+                                break
                 except Exception as e:
                     print(f"Replication loop error: {e}")
                 finally:
