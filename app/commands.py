@@ -676,3 +676,19 @@ class MultiCommand(Command):
     
     def get_name(self) -> str:
         return "MULTI"
+
+
+class ExecCommand(Command):
+    """EXEC command implementation for Redis transactions."""
+    
+    def execute(self, args: List[str]) -> bytes:
+        if len(args) != 0:
+            return self.formatter.error("wrong number of arguments for 'exec' command")
+        
+        # EXEC command executes a transaction
+        # For now, we'll return the error that EXEC without MULTI should return
+        # In a full implementation, this would execute queued commands
+        return self.formatter.error("ERR EXEC without MULTI")
+    
+    def get_name(self) -> str:
+        return "EXEC"
