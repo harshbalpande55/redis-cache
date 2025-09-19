@@ -404,8 +404,17 @@ class RedisServer:
                             # Mark this client as a replica for the entire session
                             self.client_transactions[client_id]['is_replica'] = True
                             
+                            # Send the response and then start the replica connection task
+                            if response is not None:
+                                writer.write(response)
+                                await writer.drain()
+                            
                             # Start replication loop for this replica connection
                             asyncio.create_task(self._handle_replica_connection(reader, writer, client_id))
+                            
+                            # Exit the handle_client loop for this connection
+                            # The replica connection will be handled by the separate task
+                            return
                         elif command == "REPLCONF" and len(args) > 0 and args[0].lower() == "ack":
                             # Handle REPLCONF ACK command and update replica offset
                             response = self.command_registry.execute_command(command, args)
