@@ -228,12 +228,39 @@ class LpopCommand(Command):
     """LPOP command implementation."""
     
     def execute(self, args: List[str]) -> bytes:
-        if len(args) < 1:
+        if len(args) < 1 or len(args) > 2:
             return self.formatter.error("wrong number of arguments for 'lpop' command")
         
         key = args[0]
-        value = self.storage.lpop(key)
-        return self.formatter.bulk_string(value)
+        count = 1  # Default count
+        
+        # Parse optional count parameter
+        if len(args) == 2:
+            try:
+                count = int(args[1])
+                if count < 0:
+                    return self.formatter.error("value is not an integer or out of range")
+            except ValueError:
+                return self.formatter.error("value is not an integer or out of range")
+        
+        # Get the popped elements
+        popped_elements = self.storage.lpop(key, count)
+        
+        if popped_elements is None:
+            # Key doesn't exist, is not a list, or is empty
+            if count == 1:
+                return self.formatter.bulk_string(None)  # Single element: return null
+            else:
+                return self.formatter.array([])  # Multiple elements: return empty array
+        
+        # Return the popped elements
+        if count == 1:
+            # Single element: return as bulk string
+            return self.formatter.bulk_string(popped_elements[0])
+        else:
+            # Multiple elements: return as array
+            bulk_strings = [self.formatter.bulk_string(item) for item in popped_elements]
+            return self.formatter.array(bulk_strings)
     
     def get_name(self) -> str:
         return "LPOP"

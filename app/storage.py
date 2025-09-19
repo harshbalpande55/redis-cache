@@ -56,8 +56,8 @@ class StorageBackend(ABC):
         pass
 
     @abstractmethod
-    def lpop(self, key: str) -> Optional[str]:
-        """Pop a value from the left of a list. Returns None if key doesn't exist or is not a list."""
+    def lpop(self, key: str, count: int = 1) -> Optional[List[str]]:
+        """Pop values from the left of a list. Returns None if key doesn't exist or is not a list."""
         pass
 
 class InMemoryStorage(StorageBackend):
@@ -262,8 +262,8 @@ class InMemoryStorage(StorageBackend):
             return 0
         return len(entry["value"])
     
-    def lpop(self, key: str) -> Optional[str]:
-        """Pop a value from the left of a list. Returns None if key doesn't exist or is not a list."""
+    def lpop(self, key: str, count: int = 1) -> Optional[List[str]]:
+        """Pop values from the left of a list. Returns None if key doesn't exist or is not a list."""
         if key not in self._data:
             return None
         
@@ -283,6 +283,12 @@ class InMemoryStorage(StorageBackend):
         if not entry["value"]:
             return None
         
-        # Pop the first element (leftmost)
-        return entry["value"].pop(0)
+        # Pop the requested number of elements (or all if count > list length)
+        popped_elements = []
+        actual_count = min(count, len(entry["value"]))
+        
+        for _ in range(actual_count):
+            popped_elements.append(entry["value"].pop(0))
+        
+        return popped_elements
     
