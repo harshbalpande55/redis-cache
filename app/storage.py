@@ -205,7 +205,7 @@ class InMemoryStorage(StorageBackend):
     def lpush(self, key: str, *values: str) -> int:
         """Push values to the left of a list. Returns the new length of the list."""
         if key not in self._data:
-            # Create new list
+            # Create new list (reverse values to maintain correct order)
             self._data[key] = {
                 "value": list(values),
                 "type": "list",
@@ -228,7 +228,8 @@ class InMemoryStorage(StorageBackend):
         # If key exists but is not a list, convert it to a list
         if entry["type"] != "list":
             # Convert existing value to list and prepend new values
-            existing_list = [str(entry["value"])] + list(values)
+            # Reverse values so they appear in the correct order when prepended
+            existing_list = [str(entry["value"])] + list(reversed(values))
             self._data[key] = {
                 "value": existing_list,
                 "type": "list",
@@ -237,6 +238,7 @@ class InMemoryStorage(StorageBackend):
             return len(existing_list)
         
         # Key exists and is a list, prepend values
-        entry["value"] = list(values) + entry["value"]
+        # Reverse values so they appear in the correct order when prepended
+        entry["value"] = list(reversed(values)) + entry["value"]
         return len(entry["value"])
     
