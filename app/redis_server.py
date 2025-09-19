@@ -79,6 +79,50 @@ class RedisServer:
         self.master_host = master_host
         self.master_port = master_port
     
+    async def start_replication_handshake(self, replica_port: int = 6380) -> None:
+        """Start the replication handshake with the master."""
+        if not self.is_replica:
+            return
+        
+        try:
+            # Connect to master
+            reader, writer = await asyncio.open_connection(self.master_host, self.master_port)
+            
+            # Send REPLCONF listening-port command
+            port_command = f"*3\r\n$8\r\nREPLCONF\r\n$14\r\nlistening-port\r\n${len(str(replica_port))}\r\n{replica_port}\r\n"
+            writer.write(port_command.encode())
+            await writer.drain()
+            
+            # Read response
+            response = await reader.read(1024)
+            print(f"Master response to listening-port: {response.decode()}")
+            
+            # Send REPLCONF capa command
+            capa_command = f"*3\r\n$8\r\nREPLCONF\r\n$4\r\ncapa\r\n$6\r\npsync2\r\n"
+            writer.write(capa_command.encode())
+            await writer.drain()
+            
+            # Read response
+            response = await reader.read(1024)
+            print(f"Master response to capa: {response.decode()}")
+            
+            # Send PSYNC command
+            psync_command = f"*3\r\n$5\r\nPSYNC\r\n$1\r\n?\r\n$2\r\n-1\r\n"
+            writer.write(psync_command.encode())
+            await writer.drain()
+            
+            # Read response
+            response = await reader.read(1024)
+            print(f"Master response to PSYNC: {response.decode()}")
+            
+            # Keep connection alive for replication
+            # In a full implementation, this would handle ongoing replication
+            writer.close()
+            await writer.wait_closed()
+            
+        except Exception as e:
+            print(f"Replication handshake failed: {e}")
+    
     async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         """Handle a single client connection using async I/O."""
         # Get client identifier for transaction tracking
@@ -341,6 +385,12 @@ class RedisServer:
         # Start serving clients
         async with server:
             print(f"Redis server is running on {host}:{port}")
+            
+            # If this is a replica, start the replication handshake
+            if self.is_replica:
+                # Start handshake in background
+                asyncio.create_task(self.start_replication_handshake(port))
+            
             await server.serve_forever()
     
     def get_stats(self) -> dict:
