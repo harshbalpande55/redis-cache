@@ -660,3 +660,19 @@ class IncrCommand(Command):
     
     def get_name(self) -> str:
         return "INCR"
+
+
+class MultiCommand(Command):
+    """MULTI command implementation for Redis transactions."""
+    
+    def execute(self, args: List[str]) -> bytes:
+        if len(args) != 0:
+            return self.formatter.error("wrong number of arguments for 'multi' command")
+        
+        # MULTI command starts a transaction
+        # For now, we'll just return OK as the basic implementation
+        # In a full implementation, this would set a transaction state
+        return self.formatter.simple_string("OK")
+    
+    def get_name(self) -> str:
+        return "MULTI"
