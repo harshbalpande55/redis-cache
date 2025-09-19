@@ -241,7 +241,15 @@ class RedisServer:
                         if command == "MULTI":
                             self.client_transactions[client_id]['in_transaction'] = True
                             self.client_transactions[client_id]['commands'] = []
-                            response = self.response_formatter.simple_string("OK")
+                            
+                            # Check if this is a replica connection
+                            is_replica = is_replica_connection or self.client_transactions[client_id].get('is_replica', False)
+                            
+                            if not is_replica:
+                                response = self.response_formatter.simple_string("OK")
+                            else:
+                                # Replica MULTI commands don't send responses
+                                response = None
                         elif command == "EXEC":
                             if self.client_transactions[client_id]['in_transaction']:
                                 # Execute all queued commands
@@ -254,8 +262,15 @@ class RedisServer:
                                 self.client_transactions[client_id]['in_transaction'] = False
                                 self.client_transactions[client_id]['commands'] = []
                                 
-                                # Return array of results
-                                response = self.response_formatter.array(results)
+                                # Check if this is a replica connection
+                                is_replica = is_replica_connection or self.client_transactions[client_id].get('is_replica', False)
+                                
+                                if not is_replica:
+                                    # Return array of results
+                                    response = self.response_formatter.array(results)
+                                else:
+                                    # Replica EXEC commands don't send responses
+                                    response = None
                             else:
                                 response = self.response_formatter.error("ERR EXEC without MULTI")
                         elif command == "DISCARD":
@@ -263,15 +278,32 @@ class RedisServer:
                                 # Cancel the transaction
                                 self.client_transactions[client_id]['in_transaction'] = False
                                 self.client_transactions[client_id]['commands'] = []
-                                response = self.response_formatter.simple_string("OK")
+                                
+                                # Check if this is a replica connection
+                                is_replica = is_replica_connection or self.client_transactions[client_id].get('is_replica', False)
+                                
+                                if not is_replica:
+                                    response = self.response_formatter.simple_string("OK")
+                                else:
+                                    # Replica DISCARD commands don't send responses
+                                    response = None
                             else:
-                                response = self.response_formatter.error("ERR DISCARD without MULTI")
+                                # Check if this is a replica connection
+                                is_replica = is_replica_connection or self.client_transactions[client_id].get('is_replica', False)
+                                
+                                if not is_replica:
+                                    response = self.response_formatter.error("ERR DISCARD without MULTI")
+                                else:
+                                    # Replica DISCARD commands don't send responses
+                                    response = None
                         elif command == "PSYNC":
                             # Handle PSYNC command and mark this as a replica connection
                             response = self.command_registry.execute_command(command, args)
                             is_replica_connection = True
                             # Add this connection to replica connections
                             self.add_replica_connection(reader, writer)
+                            # Mark this client as a replica for the entire session
+                            self.client_transactions[client_id]['is_replica'] = True
                         elif command == "REPLCONF" and len(args) > 0 and args[0].lower() == "ack":
                             # Handle REPLCONF ACK command and update replica offset
                             response = self.command_registry.execute_command(command, args)
@@ -287,15 +319,24 @@ class RedisServer:
                             if self.client_transactions[client_id]['in_transaction']:
                                 # Queue command for later execution
                                 self.client_transactions[client_id]['commands'].append((command, args))
-                                response = self.response_formatter.simple_string("QUEUED")
+                                
+                                # Check if this is a replica connection
+                                is_replica = is_replica_connection or self.client_transactions[client_id].get('is_replica', False)
+                                
+                                if not is_replica:
+                                    response = self.response_formatter.simple_string("QUEUED")
+                                else:
+                                    # Replica commands in transactions don't send responses
+                                    response = None
                             else:
                                 # Execute command immediately
                                 response = self.command_registry.execute_command(command, args)
                                 
-                                # If this is a replica connection, don't propagate commands back to replicas
-                                # Also, don't increment replication offset for replica connections
-                                if not is_replica_connection:
-                                    # Propagate command to replicas (except for certain commands)
+                                # Check if this is a replica connection
+                                is_replica = is_replica_connection or self.client_transactions[client_id].get('is_replica', False)
+                                
+                                if not is_replica:
+                                    # This is a regular client, propagate commands to replicas
                                     if command not in ["PING", "REPLCONF", "PSYNC", "INFO"]:
                                         await self.propagate_command_to_replicas(command, args)
                                     
@@ -303,6 +344,10 @@ class RedisServer:
                                     if command not in ["PING", "REPLCONF", "PSYNC", "INFO", "GET", "LRANGE", "LLEN", "TYPE", "EXISTS"]:
                                         command_bytes = len(data)
                                         self.increment_replication_offset(command_bytes)
+                                else:
+                                    # This is a replica receiving commands from master
+                                    # Don't send response back to master, just process the command silently
+                                    response = None
                         
                         # Check if this is a blocking command that needs special handling
                         if response.startswith(b"BLOCKING_REQUIRED"):
@@ -355,9 +400,10 @@ class RedisServer:
                                 
                                 await self._handle_blocking_xread(writer, keys, resolved_ids, timeout)
                         else:
-                            # Send normal response
-                            writer.write(response)
-                            await writer.drain()
+                            # Send normal response (skip if response is None for replica commands)
+                            if response is not None:
+                                writer.write(response)
+                                await writer.drain()
                     
                 except ConnectionResetError:
                     # Client disconnected unexpectedly
@@ -372,10 +418,6 @@ class RedisServer:
         finally:
             # Clean up blocking client if it exists
             self.blocking_manager.remove_blocking_client(writer)
-            
-            # Clean up replica connection if this was a replica
-            if is_replica_connection:
-                self.remove_replica_connection(writer)
             
             # Clean up transaction state for this client
             if client_id in self.client_transactions:
