@@ -110,6 +110,14 @@ class RedisServer:
                                 response = self.response_formatter.array(results)
                             else:
                                 response = self.response_formatter.error("ERR EXEC without MULTI")
+                        elif command == "DISCARD":
+                            if self.client_transactions[client_id]['in_transaction']:
+                                # Cancel the transaction
+                                self.client_transactions[client_id]['in_transaction'] = False
+                                self.client_transactions[client_id]['commands'] = []
+                                response = self.response_formatter.simple_string("OK")
+                            else:
+                                response = self.response_formatter.error("ERR DISCARD without MULTI")
                         else:
                             # Regular command execution
                             if self.client_transactions[client_id]['in_transaction']:
