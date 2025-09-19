@@ -253,9 +253,10 @@ class RedisServer:
                                     if command not in ["PING", "REPLCONF", "PSYNC", "INFO"]:
                                         await self.propagate_command_to_replicas(command, args)
                                     
-                                    # Increment replication offset for the command bytes
-                                    command_bytes = len(data)
-                                    self.increment_replication_offset(command_bytes)
+                                    # Increment replication offset only for data-modifying commands
+                                    if command not in ["PING", "REPLCONF", "PSYNC", "INFO", "GET", "LRANGE", "LLEN", "TYPE", "EXISTS"]:
+                                        command_bytes = len(data)
+                                        self.increment_replication_offset(command_bytes)
                         
                         # Check if this is a blocking command that needs special handling
                         if response.startswith(b"BLOCKING_REQUIRED"):
