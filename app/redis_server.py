@@ -403,6 +403,9 @@ class RedisServer:
                             self.add_replica_connection(reader, writer)
                             # Mark this client as a replica for the entire session
                             self.client_transactions[client_id]['is_replica'] = True
+                            
+                            # Start replication loop for this replica connection
+                            asyncio.create_task(self._handle_replica_connection(reader, writer, client_id))
                         elif command == "REPLCONF" and len(args) > 0 and args[0].lower() == "ack":
                             # Handle REPLCONF ACK command and update replica offset
                             response = self.command_registry.execute_command(command, args)
@@ -519,10 +522,91 @@ class RedisServer:
             # Clean up blocking client if it exists
             self.blocking_manager.remove_blocking_client(writer)
             
+            # Only clean up if this is not a replica connection
+            # Replica connections are handled by the separate _handle_replica_connection task
+            if not is_replica_connection:
+                # Clean up transaction state for this client
+                if client_id in self.client_transactions:
+                    del self.client_transactions[client_id]
+                
+                writer.close()
+                await writer.wait_closed()
+    
+    async def _handle_replica_connection(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter, client_id: int) -> None:
+        """Handle a replica connection by continuously reading and processing commands from the master."""
+        try:
+            buffer = b""
+            last_ack_time = time.time()
+            ack_interval = 1.0  # Send ACK every 1 second
+            replica_offset = 0  # Track our replication offset
+            
+            while True:
+                # Read data from master
+                data = await reader.read(1024)
+                if not data:
+                    print("Master disconnected")
+                    break
+                
+                buffer += data
+                
+                # Process complete commands from buffer
+                while buffer:
+                    try:
+                        # Try to parse a command from the buffer
+                        command, args = self.protocol_parser.parse_command(buffer)
+                        if command:
+                            print(f"Received command from master: {command} {' '.join(args)}")
+                            
+                            # Calculate the length of the processed command for offset tracking
+                            command_bytes = f"*{len([command] + args)}\r\n"
+                            for part in [command] + args:
+                                command_bytes += f"${len(part)}\r\n{part}\r\n"
+                            
+                            # Handle REPLCONF GETACK command specially - it needs a response
+                            if command == "REPLCONF" and args and args[0] == "GETACK":
+                                # Send ACK response to master with current offset (before processing this command)
+                                ack_response = f"*3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n${len(str(replica_offset))}\r\n{replica_offset}\r\n"
+                                writer.write(ack_response.encode())
+                                await writer.drain()
+                                print(f"Sent ACK response to GETACK command with offset {replica_offset}")
+                                
+                                # Now update offset to include this REPLCONF command
+                                replica_offset += len(command_bytes.encode())
+                            else:
+                                # Execute other commands silently (no response)
+                                self.command_registry.execute_command(command, args)
+                                
+                                # Update replica offset with the command length
+                                # Count all propagated commands except handshake-specific ones
+                                if command not in ["PSYNC", "INFO"]:
+                                    replica_offset += len(command_bytes.encode())
+                            
+                            # Remove the processed command from buffer
+                            buffer = buffer[len(command_bytes.encode()):]
+                            
+                            # Send periodic ACK to master
+                            current_time = time.time()
+                            if current_time - last_ack_time >= ack_interval:
+                                # Send REPLCONF ACK with current replication offset
+                                ack_command = f"*3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n${len(str(replica_offset))}\r\n{replica_offset}\r\n"
+                                writer.write(ack_command.encode())
+                                await writer.drain()
+                                last_ack_time = current_time
+                                print(f"Sent ACK to master with offset {replica_offset}")
+                        else:
+                            # Incomplete command, wait for more data
+                            break
+                    except Exception as e:
+                        print(f"Error parsing command: {e}")
+                        break
+        except Exception as e:
+            print(f"Replica connection error: {e}")
+        finally:
+            # Remove replica connection when it disconnects
+            self.remove_replica_connection(writer)
             # Clean up transaction state for this client
             if client_id in self.client_transactions:
                 del self.client_transactions[client_id]
-            
             writer.close()
             await writer.wait_closed()
     
