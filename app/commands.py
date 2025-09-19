@@ -764,6 +764,30 @@ class ReplconfCommand(Command):
             except ValueError:
                 return self.formatter.error("invalid offset value for 'replconf ack' command")
         
+        elif subcommand == "getack":
+            if len(args) != 2:
+                return self.formatter.error("wrong number of arguments for 'replconf getack' command")
+            
+            # Handle REPLCONF GETACK * command
+            if args[1] == "*":
+                if self.server:
+                    # Return ACK information for all replicas
+                    # For now, return a simple ACK with current master offset
+                    master_offset = self.server.master_repl_offset
+                    return self.formatter.array([
+                        self.formatter.bulk_string("REPLCONF"),
+                        self.formatter.bulk_string("ACK"),
+                        self.formatter.bulk_string(str(master_offset))
+                    ])
+                else:
+                    return self.formatter.array([
+                        self.formatter.bulk_string("REPLCONF"),
+                        self.formatter.bulk_string("ACK"),
+                        self.formatter.bulk_string("0")
+                    ])
+            else:
+                return self.formatter.error("invalid argument for 'replconf getack' command")
+        
         else:
             return self.formatter.error(f"unknown subcommand '{subcommand}' for 'replconf' command")
     

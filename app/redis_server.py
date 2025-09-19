@@ -93,6 +93,11 @@ class RedisServer:
         """Add a replica connection for command propagation."""
         self.connected_replicas.append((reader, writer, 0))  # Start with offset 0
         print(f"Added replica connection. Total replicas: {len(self.connected_replicas)}")
+        
+        # Log replica connection details
+        replica_addr = writer.get_extra_info('peername')
+        if replica_addr:
+            print(f"Replica connected from {replica_addr[0]}:{replica_addr[1]}")
     
     def remove_replica_connection(self, writer: asyncio.StreamWriter) -> None:
         """Remove a replica connection."""
@@ -122,14 +127,19 @@ class RedisServer:
         self.add_to_replication_backlog(resp_command.encode())
         
         # Send to all replicas
-        for reader, writer, offset in self.connected_replicas.copy():
+        failed_replicas = []
+        for reader, writer, offset in self.connected_replicas:
             try:
                 writer.write(resp_command.encode())
                 await writer.drain()
+                print(f"Propagated command to replica (offset: {offset})")
             except Exception as e:
                 print(f"Failed to propagate command to replica: {e}")
-                # Remove failed replica connection
-                self.remove_replica_connection(writer)
+                failed_replicas.append(writer)
+        
+        # Remove failed replica connections
+        for writer in failed_replicas:
+            self.remove_replica_connection(writer)
     
     def increment_replication_offset(self, command_bytes: int) -> None:
         """Increment the replication offset by the number of bytes in the command."""
