@@ -65,6 +65,11 @@ class StorageBackend(ABC):
         """Pop a value from the left of a list. Returns None if key doesn't exist or is not a list."""
         pass
 
+    @abstractmethod
+    def type(self, key: str) -> Optional[str]:
+        """Get the type of a key. Returns None if key doesn't exist."""
+        pass
+
 class InMemoryStorage(StorageBackend):
     """In-memory storage implementation with expiration support."""
     
@@ -305,3 +310,8 @@ class InMemoryStorage(StorageBackend):
             return None
         return result[0]
     
+    def type(self, key: str) -> Optional[str]:
+        """Get the type of a key. Returns None if key doesn't exist."""
+        if key not in self._data:
+            return None
+        return self._data[key]["type"]

@@ -314,3 +314,24 @@ class BlpopCommand(Command):
     
     def get_name(self) -> str:
         return "BLPOP"
+
+
+class TypeCommand(Command):
+    """TYPE command implementation."""
+    
+    def execute(self, args: List[str]) -> bytes:
+        error = self.validate_args(args, 1)
+        if error:
+            return error
+        
+        key = args[0]
+        key_type = self.storage.type(key)
+        
+        # Return "none" if key doesn't exist, otherwise return the type
+        if key_type is None:
+            return self.formatter.simple_string("none")
+        else:
+            return self.formatter.simple_string(key_type)
+    
+    def get_name(self) -> str:
+        return "TYPE"
