@@ -446,6 +446,39 @@ class InMemoryStorage(StorageBackend):
             if stream is None or not stream:
                 continue
             
+            # Handle $ ID - means "only new entries" (equivalent to max ID in stream)
+            if start_id == "$":
+                # Find the maximum ID in the stream
+                max_id = None
+                max_time = -1
+                max_seq = -1
+                
+                for entry_id in stream.keys():
+                    try:
+                        if '-' not in entry_id:
+                            continue
+                        
+                        time_part, seq_part = entry_id.split('-', 1)
+                        time_ms = int(time_part)
+                        seq_num = int(seq_part)
+                        
+                        # Check if this is the maximum ID so far
+                        if (time_ms > max_time or 
+                            (time_ms == max_time and seq_num > max_seq)):
+                            max_time = time_ms
+                            max_seq = seq_num
+                            max_id = entry_id
+                            
+                    except ValueError:
+                        continue
+                
+                # If no valid entries found, $ means no new entries
+                if max_id is None:
+                    continue
+                
+                # Use the max ID as the start_id for filtering
+                start_id = max_id
+            
             # Parse start_id to find the next ID
             def parse_id(entry_id: str) -> tuple:
                 """Parse entry ID into (time_ms, seq_num) tuple."""
