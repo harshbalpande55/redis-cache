@@ -48,6 +48,10 @@ class RedisServer:
         
         # Connected replicas for command propagation
         self.connected_replicas = []  # List of (reader, writer, offset) tuples for connected replicas
+        
+        # Replication backlog for partial resynchronization
+        self.replication_backlog = []  # List of (offset, command_bytes) tuples
+        self.replication_backlog_size = 1000000  # 1MB backlog size
     
     def _register_commands(self) -> None:
         """Register all available commands."""
@@ -112,6 +116,9 @@ class RedisServer:
         for part in command_parts:
             resp_command += f"${len(part)}\r\n{part}\r\n"
         
+        # Add to replication backlog
+        self.add_to_replication_backlog(resp_command.encode())
+        
         # Send to all replicas
         for reader, writer, offset in self.connected_replicas.copy():
             try:
@@ -125,6 +132,28 @@ class RedisServer:
     def increment_replication_offset(self, command_bytes: int) -> None:
         """Increment the replication offset by the number of bytes in the command."""
         self.master_repl_offset += command_bytes
+    
+    def add_to_replication_backlog(self, command_bytes: bytes) -> None:
+        """Add a command to the replication backlog."""
+        # Add to backlog
+        self.replication_backlog.append((self.master_repl_offset, command_bytes))
+        
+        # Maintain backlog size limit
+        current_size = sum(len(cmd) for _, cmd in self.replication_backlog)
+        while current_size > self.replication_backlog_size and self.replication_backlog:
+            self.replication_backlog.pop(0)
+            current_size = sum(len(cmd) for _, cmd in self.replication_backlog)
+    
+    async def send_backlog_to_replica(self, writer: asyncio.StreamWriter, from_offset: int) -> None:
+        """Send backlog commands to a replica starting from the specified offset."""
+        for offset, command_bytes in self.replication_backlog:
+            if offset > from_offset:
+                try:
+                    writer.write(command_bytes)
+                    await writer.drain()
+                except Exception as e:
+                    print(f"Failed to send backlog command to replica: {e}")
+                    break
     
     async def start_replication_handshake(self, replica_port: int = 6380) -> None:
         """Start the replication handshake with the master."""

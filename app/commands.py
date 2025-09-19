@@ -785,16 +785,26 @@ class PsyncCommand(Command):
         replication_id = args[0]
         offset = args[1]
         
-        # For now, we'll always respond with FULLRESYNC
-        # This indicates a full synchronization is needed
         if self.server:
             master_replid = self.server.master_replid
             master_repl_offset = self.server.master_repl_offset
+            
+            # Check if we can do partial resynchronization
+            if replication_id == master_replid and offset != "-1":
+                try:
+                    replica_offset = int(offset)
+                    # Check if the replica's offset is in our backlog
+                    if (self.server.replication_backlog and 
+                        replica_offset >= self.server.replication_backlog[0][0]):
+                        # Partial resynchronization possible
+                        return self.formatter.simple_string(f"CONTINUE {master_replid}")
+                except ValueError:
+                    pass
         else:
             master_replid = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"
             master_repl_offset = 0
         
-        # Return FULLRESYNC response followed by empty RDB file
+        # Full resynchronization needed
         fullresync_response = f"FULLRESYNC {master_replid} {master_repl_offset}"
         
         # Create empty RDB file (Redis Database file format)
