@@ -1,4 +1,5 @@
-import socket  # noqa: F401
+import socket
+from sqlite3 import Connection  # noqa: F401
 
 
 def main():
@@ -8,7 +9,8 @@ def main():
     # # Uncomment this to pass the first stage
     # #
     server_socket = socket.create_server(("localhost", 6379), reuse_port=True)
-    server_socket.accept() # wait for client
+    connection, _ = server_socket.accept() # wait for client
+    connection.send(b"+PONG\r\n")
 
 
 if __name__ == "__main__":
