@@ -1,0 +1,159 @@
+"""
+Storage abstraction layer for Redis data.
+Supports different storage backends and expiration.
+"""
+import time
+from abc import ABC, abstractmethod
+from typing import Optional, Dict, Any, List, Union
+
+
+class StorageBackend(ABC):
+    """Abstract base class for storage backends."""
+    
+    @abstractmethod
+    def set(self, key: str, value: str, expires_at: Optional[float] = None) -> None:
+        """Set a key-value pair with optional expiration."""
+        pass
+    
+    @abstractmethod
+    def get(self, key: str) -> Optional[str]:
+        """Get a value by key. Returns None if key doesn't exist or has expired."""
+        pass
+    
+    @abstractmethod
+    def delete(self, key: str) -> bool:
+        """Delete a key. Returns True if key existed, False otherwise."""
+        pass
+    
+    @abstractmethod
+    def exists(self, key: str) -> bool:
+        """Check if a key exists and hasn't expired."""
+        pass
+    
+    @abstractmethod
+    def rpush(self, key: str, *values: str) -> int:
+        """Push values to the right of a list. Returns the new length of the list."""
+        pass
+    
+    @abstractmethod
+    def get_list(self, key: str) -> Optional[List[str]]:
+        """Get a list by key. Returns None if key doesn't exist or is not a list."""
+        pass
+
+
+class InMemoryStorage(StorageBackend):
+    """In-memory storage implementation with expiration support."""
+    
+    def __init__(self):
+        # Format: {key: {"value": value, "type": "string"|"list", "expires_at": timestamp}}
+        self._data: Dict[str, Dict[str, Any]] = {}
+    
+    def set(self, key: str, value: str, expires_at: Optional[float] = None) -> None:
+        """Set a key-value pair with optional expiration."""
+        self._data[key] = {
+            "value": value,
+            "type": "string",
+            "expires_at": expires_at
+        }
+    
+    def get(self, key: str) -> Optional[str]:
+        """Get a string value by key. Returns None if key doesn't exist, has expired, or is not a string."""
+        if key not in self._data:
+            return None
+        
+        entry = self._data[key]
+        
+        # Check if the key has expired
+        if entry["expires_at"] is not None and time.time() > entry["expires_at"]:
+            # Key has expired, remove it
+            del self._data[key]
+            return None
+        
+        # Only return string values
+        if entry["type"] == "string":
+            return entry["value"]
+        return None
+    
+    def delete(self, key: str) -> bool:
+        """Delete a key. Returns True if key existed, False otherwise."""
+        if key in self._data:
+            del self._data[key]
+            return True
+        return False
+    
+    def exists(self, key: str) -> bool:
+        """Check if a key exists and hasn't expired."""
+        return self.get(key) is not None
+    
+    def clear(self) -> None:
+        """Clear all data (useful for testing)."""
+        self._data.clear()
+    
+    def size(self) -> int:
+        """Get the number of keys in storage."""
+        # Clean up expired keys first
+        current_time = time.time()
+        expired_keys = [
+            key for key, entry in self._data.items()
+            if entry["expires_at"] is not None and current_time > entry["expires_at"]
+        ]
+        for key in expired_keys:
+            del self._data[key]
+        
+        return len(self._data)
+    
+    def rpush(self, key: str, *values: str) -> int:
+        """Push values to the right of a list. Returns the new length of the list."""
+        if key not in self._data:
+            # Create new list
+            self._data[key] = {
+                "value": list(values),
+                "type": "list",
+                "expires_at": None
+            }
+            return len(values)
+        
+        entry = self._data[key]
+        
+        # Check if the key has expired
+        if entry["expires_at"] is not None and time.time() > entry["expires_at"]:
+            # Key has expired, create new list
+            self._data[key] = {
+                "value": list(values),
+                "type": "list",
+                "expires_at": None
+            }
+            return len(values)
+        
+        # If key exists but is not a list, convert it to a list
+        if entry["type"] != "list":
+            # Convert existing value to list and append new values
+            existing_list = [str(entry["value"])] + list(values)
+            self._data[key] = {
+                "value": existing_list,
+                "type": "list",
+                "expires_at": entry["expires_at"]
+            }
+            return len(existing_list)
+        
+        # Key exists and is a list, append values
+        entry["value"].extend(values)
+        return len(entry["value"])
+    
+    def get_list(self, key: str) -> Optional[List[str]]:
+        """Get a list by key. Returns None if key doesn't exist, has expired, or is not a list."""
+        if key not in self._data:
+            return None
+        
+        entry = self._data[key]
+        
+        # Check if the key has expired
+        if entry["expires_at"] is not None and time.time() > entry["expires_at"]:
+            # Key has expired, remove it
+            del self._data[key]
+            return None
+        
+        # Only return list values
+        if entry["type"] == "list":
+            return entry["value"]
+        return None
