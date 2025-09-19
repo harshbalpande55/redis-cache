@@ -628,3 +628,35 @@ class TypeCommand(Command):
     
     def get_name(self) -> str:
         return "TYPE"
+
+
+class IncrCommand(Command):
+    """INCR command implementation for Redis."""
+    
+    def execute(self, args: List[str]) -> bytes:
+        if len(args) != 1:
+            return self.formatter.error("wrong number of arguments for 'incr' command")
+        
+        key = args[0]
+        
+        # Get the current value
+        current_value = self.storage.get(key)
+        
+        if current_value is None:
+            # Key doesn't exist, start with 0
+            new_value = 1
+        else:
+            # Key exists, try to parse as integer
+            try:
+                current_int = int(current_value)
+                new_value = current_int + 1
+            except ValueError:
+                return self.formatter.error("ERR value is not an integer or out of range")
+        
+        # Set the new value
+        self.storage.set(key, str(new_value))
+        
+        return self.formatter.integer(new_value)
+    
+    def get_name(self) -> str:
+        return "INCR"
