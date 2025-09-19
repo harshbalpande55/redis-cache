@@ -533,12 +533,26 @@ class XreadCommand(Command):
         if len(args) < 3:
             return self.formatter.error("wrong number of arguments for 'xread' command")
         
-        # Parse arguments: XREAD STREAMS key1 key2 ... id1 id2 ...
-        if args[0].upper() != "STREAMS":
+        # Parse arguments: XREAD [BLOCK timeout] STREAMS key1 key2 ... id1 id2 ...
+        block_timeout = None
+        streams_start_idx = 0
+        
+        # Check for BLOCK option
+        if len(args) >= 3 and args[0].upper() == "BLOCK":
+            try:
+                block_timeout = int(args[1])
+                if block_timeout < 0:
+                    return self.formatter.error("timeout is negative")
+                streams_start_idx = 2
+            except ValueError:
+                return self.formatter.error("timeout is not an integer or out of range")
+        
+        # Parse STREAMS section
+        if args[streams_start_idx].upper() != "STREAMS":
             return self.formatter.error("syntax error")
         
         # Find the split point between keys and IDs
-        streams_section = args[1:]
+        streams_section = args[streams_start_idx + 1:]
         if len(streams_section) % 2 != 0:
             return self.formatter.error("syntax error")
         
@@ -554,8 +568,13 @@ class XreadCommand(Command):
         result = self.storage.xread(streams)
         
         if not result:
-            # No data available, return null array
-            return self.formatter.array(None)
+            # No data available
+            if block_timeout is not None:
+                # This should trigger blocking behavior
+                return f"BLOCKING_REQUIRED:{block_timeout}:{':'.join(keys)}:{':'.join(ids)}".encode('utf-8')
+            else:
+                # Return null array
+                return self.formatter.array(None)
         
         # Convert result to RESP array format
         # Format: [[stream_key, [[id, [field1, value1, field2, value2, ...]], ...]], ...]

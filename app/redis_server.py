@@ -83,11 +83,19 @@ class RedisServer:
                         response = self.command_registry.execute_command(command, args)
                         
                         # Check if this is a blocking command that needs special handling
-                        if response.startswith(b"BLOCKING_REQUIRED") and command == "BLPOP":
-                            # Handle blocking BLPOP with timeout
-                            timeout_str = response.decode('utf-8').split(':')[1]
-                            timeout = float(timeout_str)
-                            await self._handle_blocking_blpop(writer, args, timeout)
+                        if response.startswith(b"BLOCKING_REQUIRED"):
+                            if command == "BLPOP":
+                                # Handle blocking BLPOP with timeout
+                                timeout_str = response.decode('utf-8').split(':')[1]
+                                timeout = float(timeout_str)
+                                await self._handle_blocking_blpop(writer, args, timeout)
+                            elif command == "XREAD":
+                                # Handle blocking XREAD with timeout
+                                parts = response.decode('utf-8').split(':')
+                                timeout = int(parts[1])
+                                keys = parts[2].split(':')
+                                ids = parts[3].split(':')
+                                await self._handle_blocking_xread(writer, keys, ids, timeout)
                         else:
                             # Send normal response
                             writer.write(response)
@@ -147,6 +155,69 @@ class RedisServer:
                             return
                 
                 # No elements available, wait a bit before checking again
+                await asyncio.sleep(0.01)  # Small delay to prevent busy waiting
+                
+        finally:
+            # Always clean up the client from blocking manager
+            self.blocking_manager.remove_blocking_client(writer)
+    
+    async def _handle_blocking_xread(self, writer: asyncio.StreamWriter, keys: List[str], ids: List[str], timeout: int) -> None:
+        """Handle blocking XREAD command with timeout."""
+        import time
+        
+        start_time = time.time()
+        
+        # Add client to blocking manager for stream keys
+        self.blocking_manager.add_blocking_client(writer, keys, "XREAD")
+        
+        try:
+            # Wait for new entries in any of the streams or timeout
+            while True:
+                # Check if timeout has expired
+                if timeout > 0 and (time.time() - start_time) * 1000 >= timeout:
+                    # Timeout reached, send null response
+                    response = self.response_formatter.array(None)  # *-1\r\n
+                    writer.write(response)
+                    await writer.drain()
+                    return
+                
+                # Check if any of the streams have new entries
+                streams = list(zip(keys, ids))
+                result = self.storage.xread(streams)
+                
+                if result:
+                    # Found new entries, send response
+                    entries = []
+                    for stream_key, stream_entries in result:
+                        # Create stream entry array
+                        stream_array = []
+                        for entry_id, fields in stream_entries:
+                            # Create field-value pairs array
+                            field_value_pairs = []
+                            for field, value in fields.items():
+                                field_value_pairs.append(self.response_formatter.bulk_string(field))
+                                field_value_pairs.append(self.response_formatter.bulk_string(value))
+                            
+                            # Create entry array: [id, [field1, value1, field2, value2, ...]]
+                            entry_array = [
+                                self.response_formatter.bulk_string(entry_id),
+                                self.response_formatter.array(field_value_pairs)
+                            ]
+                            stream_array.append(self.response_formatter.array(entry_array))
+                        
+                        # Create stream array: [stream_key, [entries...]]
+                        stream_entry = [
+                            self.response_formatter.bulk_string(stream_key),
+                            self.response_formatter.array(stream_array)
+                        ]
+                        entries.append(self.response_formatter.array(stream_entry))
+                    
+                    response = self.response_formatter.array(entries)
+                    writer.write(response)
+                    await writer.drain()
+                    return
+                
+                # No new entries available, wait a bit before checking again
                 await asyncio.sleep(0.01)  # Small delay to prevent busy waiting
                 
         finally:
