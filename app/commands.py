@@ -796,3 +796,6 @@ class PsyncCommand(Command):
     
     def get_name(self) -> str:
         return "PSYNC"
+    
+    def get_name(self) -> str:
+        return "PSYNC"

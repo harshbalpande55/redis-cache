@@ -45,6 +45,9 @@ class RedisServer:
         # Replication state
         self.master_replid = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"  # Default replication ID
         self.master_repl_offset = 0  # Replication offset
+        
+        # Connected replicas for command propagation
+        self.connected_replicas = []  # List of (reader, writer) tuples for connected replicas
     
     def _register_commands(self) -> None:
         """Register all available commands."""
@@ -80,6 +83,41 @@ class RedisServer:
         self.is_replica = True
         self.master_host = master_host
         self.master_port = master_port
+    
+    def add_replica_connection(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        """Add a replica connection for command propagation."""
+        self.connected_replicas.append((reader, writer))
+        print(f"Added replica connection. Total replicas: {len(self.connected_replicas)}")
+    
+    def remove_replica_connection(self, writer: asyncio.StreamWriter) -> None:
+        """Remove a replica connection."""
+        self.connected_replicas = [(r, w) for r, w in self.connected_replicas if w != writer]
+        print(f"Removed replica connection. Total replicas: {len(self.connected_replicas)}")
+    
+    async def propagate_command_to_replicas(self, command: str, args: List[str]) -> None:
+        """Propagate a command to all connected replicas."""
+        if not self.connected_replicas:
+            return
+        
+        # Build the command in RESP format
+        command_parts = [command] + args
+        resp_command = f"*{len(command_parts)}\r\n"
+        for part in command_parts:
+            resp_command += f"${len(part)}\r\n{part}\r\n"
+        
+        # Send to all replicas
+        for reader, writer in self.connected_replicas.copy():
+            try:
+                writer.write(resp_command.encode())
+                await writer.drain()
+            except Exception as e:
+                print(f"Failed to propagate command to replica: {e}")
+                # Remove failed replica connection
+                self.remove_replica_connection(writer)
+    
+    def increment_replication_offset(self, command_bytes: int) -> None:
+        """Increment the replication offset by the number of bytes in the command."""
+        self.master_repl_offset += command_bytes
     
     async def start_replication_handshake(self, replica_port: int = 6380) -> None:
         """Start the replication handshake with the master."""
@@ -141,6 +179,9 @@ class RedisServer:
         if client_id not in self.client_transactions:
             self.client_transactions[client_id] = {'in_transaction': False, 'commands': []}
         
+        # Track if this is a replica connection
+        is_replica_connection = False
+        
         try:
             # Loop to handle multiple commands on the same connection
             while True:
@@ -189,6 +230,12 @@ class RedisServer:
                                 response = self.response_formatter.simple_string("OK")
                             else:
                                 response = self.response_formatter.error("ERR DISCARD without MULTI")
+                        elif command == "PSYNC":
+                            # Handle PSYNC command and mark this as a replica connection
+                            response = self.command_registry.execute_command(command, args)
+                            is_replica_connection = True
+                            # Add this connection to replica connections
+                            self.add_replica_connection(reader, writer)
                         else:
                             # Regular command execution
                             if self.client_transactions[client_id]['in_transaction']:
@@ -198,6 +245,17 @@ class RedisServer:
                             else:
                                 # Execute command immediately
                                 response = self.command_registry.execute_command(command, args)
+                                
+                                # If this is a replica connection, don't propagate commands back to replicas
+                                # Also, don't increment replication offset for replica connections
+                                if not is_replica_connection:
+                                    # Propagate command to replicas (except for certain commands)
+                                    if command not in ["PING", "REPLCONF", "PSYNC", "INFO"]:
+                                        await self.propagate_command_to_replicas(command, args)
+                                    
+                                    # Increment replication offset for the command bytes
+                                    command_bytes = len(data)
+                                    self.increment_replication_offset(command_bytes)
                         
                         # Check if this is a blocking command that needs special handling
                         if response.startswith(b"BLOCKING_REQUIRED"):
@@ -267,6 +325,10 @@ class RedisServer:
         finally:
             # Clean up blocking client if it exists
             self.blocking_manager.remove_blocking_client(writer)
+            
+            # Clean up replica connection if this was a replica
+            if is_replica_connection:
+                self.remove_replica_connection(writer)
             
             # Clean up transaction state for this client
             if client_id in self.client_transactions:
