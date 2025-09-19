@@ -721,3 +721,35 @@ class InfoCommand(Command):
     
     def get_name(self) -> str:
         return "INFO"
+
+
+class ReplconfCommand(Command):
+    """REPLCONF command implementation for Redis replication handshake."""
+    
+    def __init__(self, storage: StorageBackend, server=None):
+        super().__init__(storage)
+        self.server = server
+    
+    def execute(self, args: List[str]) -> bytes:
+        if len(args) < 1:
+            return self.formatter.error("wrong number of arguments for 'replconf' command")
+        
+        subcommand = args[0].lower()
+        
+        if subcommand == "listening-port":
+            if len(args) != 2:
+                return self.formatter.error("wrong number of arguments for 'replconf listening-port' command")
+            # Acknowledge the replica's listening port
+            return self.formatter.simple_string("OK")
+        
+        elif subcommand == "capa":
+            if len(args) != 2:
+                return self.formatter.error("wrong number of arguments for 'replconf capa' command")
+            # Acknowledge the replica's capabilities
+            return self.formatter.simple_string("OK")
+        
+        else:
+            return self.formatter.error(f"unknown subcommand '{subcommand}' for 'replconf' command")
+    
+    def get_name(self) -> str:
+        return "REPLCONF"
