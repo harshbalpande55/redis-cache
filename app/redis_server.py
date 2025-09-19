@@ -233,6 +233,7 @@ class RedisServer:
                     buffer = b""
                     last_ack_time = time.time()
                     ack_interval = 1.0  # Send ACK every 1 second
+                    replica_offset = 0  # Track our replication offset
                     
                     while True:
                         # Read data from master
@@ -251,35 +252,37 @@ class RedisServer:
                                 if command:
                                     print(f"Received command from master: {command} {' '.join(args)}")
                                     
+                                    # Calculate the length of the processed command for offset tracking
+                                    command_bytes = f"*{len([command] + args)}\r\n"
+                                    for part in [command] + args:
+                                        command_bytes += f"${len(part)}\r\n{part}\r\n"
+                                    
+                                    # Update replica offset with the command length
+                                    replica_offset += len(command_bytes.encode())
+                                    
                                     # Handle REPLCONF GETACK command specially - it needs a response
                                     if command == "REPLCONF" and args and args[0] == "GETACK":
-                                        # Send ACK response to master
-                                        ack_response = f"*3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n$1\r\n0\r\n"
+                                        # Send ACK response to master with current offset
+                                        ack_response = f"*3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n${len(str(replica_offset))}\r\n{replica_offset}\r\n"
                                         writer.write(ack_response.encode())
                                         await writer.drain()
-                                        print("Sent ACK response to GETACK command")
+                                        print(f"Sent ACK response to GETACK command with offset {replica_offset}")
                                     else:
                                         # Execute other commands silently (no response)
                                         self.command_registry.execute_command(command, args)
                                     
                                     # Remove the processed command from buffer
-                                    # Calculate the length of the processed command
-                                    command_bytes = f"*{len([command] + args)}\r\n"
-                                    for part in [command] + args:
-                                        command_bytes += f"${len(part)}\r\n{part}\r\n"
-                                    
                                     buffer = buffer[len(command_bytes.encode()):]
                                     
                                     # Send periodic ACK to master
                                     current_time = time.time()
                                     if current_time - last_ack_time >= ack_interval:
                                         # Send REPLCONF ACK with current replication offset
-                                        # For now, we'll use a simple offset counter
-                                        ack_command = f"*3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n$1\r\n0\r\n"
+                                        ack_command = f"*3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n${len(str(replica_offset))}\r\n{replica_offset}\r\n"
                                         writer.write(ack_command.encode())
                                         await writer.drain()
                                         last_ack_time = current_time
-                                        print("Sent ACK to master")
+                                        print(f"Sent ACK to master with offset {replica_offset}")
                                 else:
                                     # Incomplete command, wait for more data
                                     break
