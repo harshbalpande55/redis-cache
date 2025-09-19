@@ -79,9 +79,11 @@ class RedisServer:
                         response = self.command_registry.execute_command(command, args)
                         
                         # Check if this is a blocking command that needs special handling
-                        if response == b"BLOCKING_REQUIRED" and command == "BLPOP":
-                            # Handle blocking BLPOP
-                            await self._handle_blocking_blpop(writer, args)
+                        if response.startswith(b"BLOCKING_REQUIRED") and command == "BLPOP":
+                            # Handle blocking BLPOP with timeout
+                            timeout_str = response.decode('utf-8').split(':')[1]
+                            timeout = float(timeout_str)
+                            await self._handle_blocking_blpop(writer, args, timeout)
                         else:
                             # Send normal response
                             writer.write(response)
@@ -103,38 +105,49 @@ class RedisServer:
             writer.close()
             await writer.wait_closed()
     
-    async def _handle_blocking_blpop(self, writer: asyncio.StreamWriter, args: List[str]) -> None:
-        """Handle blocking BLPOP command."""
+    async def _handle_blocking_blpop(self, writer: asyncio.StreamWriter, args: List[str], timeout: float) -> None:
+        """Handle blocking BLPOP command with timeout."""
+        import time
+        
         keys = args[:-1]  # All arguments except the last one are keys
+        start_time = time.time()
         
         # Add client to blocking manager
         self.blocking_manager.add_blocking_client(writer, keys, "BLPOP")
         
-        # Wait for an element to become available
-        # This is a simplified implementation - in a real Redis server,
-        # this would use more sophisticated event handling
-        while True:
-            # Check if any of the keys have elements
-            for key in keys:
-                value = self.storage.blpop(key)
-                if value is not None:
-                    # Found an element, send response to the oldest waiting client
-                    oldest_client = self.blocking_manager.get_oldest_waiting_client(key)
-                    if oldest_client and oldest_client.writer == writer:
-                        # This client gets the element
-                        response = self.response_formatter.array([
-                            self.response_formatter.bulk_string(key),
-                            self.response_formatter.bulk_string(value)
-                        ])
-                        writer.write(response)
-                        await writer.drain()
-                        
-                        # Remove this client from blocking manager
-                        self.blocking_manager.remove_waiting_client(key, oldest_client)
-                        return
-            
-            # No elements available, wait a bit before checking again
-            await asyncio.sleep(0.01)  # Small delay to prevent busy waiting
+        try:
+            # Wait for an element to become available or timeout
+            while True:
+                # Check if timeout has expired
+                if timeout > 0 and (time.time() - start_time) >= timeout:
+                    # Timeout reached, send null response
+                    response = self.response_formatter.array(None)  # *-1\r\n
+                    writer.write(response)
+                    await writer.drain()
+                    return
+                
+                # Check if any of the keys have elements
+                for key in keys:
+                    value = self.storage.blpop(key)
+                    if value is not None:
+                        # Found an element, send response to the oldest waiting client
+                        oldest_client = self.blocking_manager.get_oldest_waiting_client(key)
+                        if oldest_client and oldest_client.writer == writer:
+                            # This client gets the element
+                            response = self.response_formatter.array([
+                                self.response_formatter.bulk_string(key),
+                                self.response_formatter.bulk_string(value)
+                            ])
+                            writer.write(response)
+                            await writer.drain()
+                            return
+                
+                # No elements available, wait a bit before checking again
+                await asyncio.sleep(0.01)  # Small delay to prevent busy waiting
+                
+        finally:
+            # Always clean up the client from blocking manager
+            self.blocking_manager.remove_blocking_client(writer)
     
     async def start_server(self, host: str = "localhost", port: int = 6379) -> None:
         """Start the Redis server."""

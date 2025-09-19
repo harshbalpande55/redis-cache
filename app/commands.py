@@ -298,10 +298,6 @@ class BlpopCommand(Command):
         except ValueError:
             return self.formatter.error("timeout is not a float or out of range")
         
-        # For now, we only support timeout = 0 (infinite wait)
-        if timeout != 0:
-            return self.formatter.error("timeout must be 0 for this stage")
-        
         # Try to pop from each key in order
         for key in keys:
             value = self.storage.blpop(key)
@@ -313,8 +309,8 @@ class BlpopCommand(Command):
                 ])
         
         # No elements available, this should trigger blocking behavior
-        # For now, return a special response that indicates blocking is needed
-        return b"BLOCKING_REQUIRED"
+        # Return a special response that indicates blocking is needed with timeout
+        return f"BLOCKING_REQUIRED:{timeout}".encode('utf-8')
     
     def get_name(self) -> str:
         return "BLPOP"
