@@ -258,8 +258,8 @@ class RedisServer:
                                         command_bytes += f"${len(part)}\r\n{part}\r\n"
                                     
                                     # Update replica offset with the command length
-                                    # Only count data-modifying commands, not handshake commands
-                                    if command not in ["PING", "REPLCONF", "PSYNC", "INFO"]:
+                                    # Count all propagated commands except replication-specific ones
+                                    if command not in ["REPLCONF", "PSYNC", "INFO"]:
                                         replica_offset += len(command_bytes.encode())
                                     
                                     # Handle REPLCONF GETACK command specially - it needs a response
@@ -433,7 +433,8 @@ class RedisServer:
                                 
                                 if not is_replica:
                                     # This is a regular client, propagate commands to replicas
-                                    if command not in ["PING", "REPLCONF", "PSYNC", "INFO"]:
+                                    # Propagate all commands except replication-specific ones
+                                    if command not in ["REPLCONF", "PSYNC", "INFO"]:
                                         await self.propagate_command_to_replicas(command, args)
                                     
                                     # Increment replication offset only for data-modifying commands
