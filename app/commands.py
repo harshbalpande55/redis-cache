@@ -336,12 +336,80 @@ class XaddCommand(Command):
             value = args[i + 1]
             fields[field] = value
         
+        # Validate entry ID
+        validation_error = self._validate_entry_id(key, entry_id)
+        if validation_error:
+            return self.formatter.error(validation_error)
+        
         # Add entry to stream
         try:
             result_id = self.storage.xadd(key, entry_id, fields)
             return self.formatter.bulk_string(result_id)
         except Exception as e:
             return self.formatter.error(f"ERR {str(e)}")
+    
+    def _validate_entry_id(self, key: str, entry_id: str) -> Optional[str]:
+        """Validate entry ID according to Redis rules."""
+        # Parse the entry ID (format: millisecondsTime-sequenceNumber)
+        try:
+            if '-' not in entry_id:
+                return "ERR Invalid entry ID format"
+            
+            time_part, seq_part = entry_id.split('-', 1)
+            time_ms = int(time_part)
+            seq_num = int(seq_part)
+        except ValueError:
+            return "ERR Invalid entry ID format"
+        
+        # Check minimum ID requirement (must be greater than 0-0)
+        if time_ms == 0 and seq_num == 0:
+            return "ERR The ID specified in XADD must be greater than 0-0"
+        
+        # Get the stream to check for existing entries
+        stream = self.storage.get_stream(key)
+        if stream is None:
+            # Stream doesn't exist, any valid ID is acceptable
+            return None
+        
+        if not stream:
+            # Stream is empty, any valid ID is acceptable
+            return None
+        
+        # Find the highest entry ID in the stream
+        highest_id = None
+        highest_time = -1
+        highest_seq = -1
+        
+        for existing_id in stream.keys():
+            try:
+                if '-' not in existing_id:
+                    continue
+                
+                existing_time_part, existing_seq_part = existing_id.split('-', 1)
+                existing_time = int(existing_time_part)
+                existing_seq = int(existing_seq_part)
+                
+                # Check if this is the highest ID so far
+                if (existing_time > highest_time or 
+                    (existing_time == highest_time and existing_seq > highest_seq)):
+                    highest_time = existing_time
+                    highest_seq = existing_seq
+                    highest_id = existing_id
+                    
+            except ValueError:
+                continue
+        
+        # If no valid entries found, any valid ID is acceptable
+        if highest_id is None:
+            return None
+        
+        # Validate that the new ID is greater than the highest existing ID
+        if time_ms < highest_time:
+            return "ERR The ID specified in XADD is equal or smaller than the target stream top item"
+        elif time_ms == highest_time and seq_num <= highest_seq:
+            return "ERR The ID specified in XADD is equal or smaller than the target stream top item"
+        
+        return None
     
     def get_name(self) -> str:
         return "XADD"
