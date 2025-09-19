@@ -526,6 +526,70 @@ class XrangeCommand(Command):
         return "XRANGE"
 
 
+class XreadCommand(Command):
+    """XREAD command implementation for Redis streams."""
+    
+    def execute(self, args: List[str]) -> bytes:
+        if len(args) < 3:
+            return self.formatter.error("wrong number of arguments for 'xread' command")
+        
+        # Parse arguments: XREAD STREAMS key1 key2 ... id1 id2 ...
+        if args[0].upper() != "STREAMS":
+            return self.formatter.error("syntax error")
+        
+        # Find the split point between keys and IDs
+        streams_section = args[1:]
+        if len(streams_section) % 2 != 0:
+            return self.formatter.error("syntax error")
+        
+        # Split into keys and IDs
+        num_streams = len(streams_section) // 2
+        keys = streams_section[:num_streams]
+        ids = streams_section[num_streams:]
+        
+        # Create list of (stream_key, start_id) tuples
+        streams = list(zip(keys, ids))
+        
+        # Read from streams
+        result = self.storage.xread(streams)
+        
+        if not result:
+            # No data available, return null array
+            return self.formatter.array(None)
+        
+        # Convert result to RESP array format
+        # Format: [[stream_key, [[id, [field1, value1, field2, value2, ...]], ...]], ...]
+        entries = []
+        for stream_key, stream_entries in result:
+            # Create stream entry array
+            stream_array = []
+            for entry_id, fields in stream_entries:
+                # Create field-value pairs array
+                field_value_pairs = []
+                for field, value in fields.items():
+                    field_value_pairs.append(self.formatter.bulk_string(field))
+                    field_value_pairs.append(self.formatter.bulk_string(value))
+                
+                # Create entry array: [id, [field1, value1, field2, value2, ...]]
+                entry_array = [
+                    self.formatter.bulk_string(entry_id),
+                    self.formatter.array(field_value_pairs)
+                ]
+                stream_array.append(self.formatter.array(entry_array))
+            
+            # Create stream array: [stream_key, [entries...]]
+            stream_entry = [
+                self.formatter.bulk_string(stream_key),
+                self.formatter.array(stream_array)
+            ]
+            entries.append(self.formatter.array(stream_entry))
+        
+        return self.formatter.array(entries)
+    
+    def get_name(self) -> str:
+        return "XREAD"
+
+
 class TypeCommand(Command):
     """TYPE command implementation."""
     

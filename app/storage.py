@@ -81,6 +81,11 @@ class StorageBackend(ABC):
         pass
 
     @abstractmethod
+    def xread(self, streams: List[tuple]) -> List[tuple]:
+        """Read from multiple streams. Returns list of (stream_key, entries) tuples."""
+        pass
+
+    @abstractmethod
     def type(self, key: str) -> Optional[str]:
         """Get the type of a key. Returns None if key doesn't exist."""
         pass
@@ -427,6 +432,53 @@ class InMemoryStorage(StorageBackend):
                 result = []  # COUNT 0 returns empty array
             elif count > 0:
                 result = result[:count]
+        
+        return result
+
+    def xread(self, streams: List[tuple]) -> List[tuple]:
+        """Read from multiple streams. Returns list of (stream_key, entries) tuples."""
+        result = []
+        
+        for stream_key, start_id in streams:
+            # For XREAD, we need to get entries with ID > start_id (exclusive)
+            # So we need to find the next ID after start_id
+            stream = self.get_stream(stream_key)
+            if stream is None or not stream:
+                continue
+            
+            # Parse start_id to find the next ID
+            def parse_id(entry_id: str) -> tuple:
+                """Parse entry ID into (time_ms, seq_num) tuple."""
+                if entry_id == "-":
+                    return (0, 0)  # From beginning
+                elif entry_id == "+":
+                    return (float('inf'), float('inf'))  # To end
+                elif '-' not in entry_id:
+                    raise ValueError("Invalid entry ID format")
+                time_part, seq_part = entry_id.split('-', 1)
+                return (int(time_part), int(seq_part))
+            
+            try:
+                start_parsed = parse_id(start_id)
+            except ValueError:
+                continue
+            
+            # Find entries with ID > start_id
+            stream_entries = []
+            for entry_id, fields in stream.items():
+                try:
+                    entry_parsed = parse_id(entry_id)
+                    # Only include entries with ID > start_id
+                    if entry_parsed > start_parsed:
+                        stream_entries.append((entry_id, fields))
+                except ValueError:
+                    continue  # Skip invalid entry IDs
+            
+            # Sort by entry ID (chronological order)
+            stream_entries.sort(key=lambda x: parse_id(x[0]))
+            
+            if stream_entries:
+                result.append((stream_key, stream_entries))
         
         return result
 
