@@ -336,20 +336,40 @@ class XaddCommand(Command):
             value = args[i + 1]
             fields[field] = value
         
-        # Validate entry ID
-        validation_error = self._validate_entry_id(key, entry_id)
-        if validation_error:
-            return self.formatter.error(validation_error)
+        # Validate entry ID and handle auto-generation
+        validation_result = self._validate_entry_id(key, entry_id)
+        if validation_result is None:
+            # Explicit ID is valid, use it
+            final_id = entry_id
+        elif validation_result.startswith("ERR"):
+            # Validation error
+            return self.formatter.error(validation_result)
+        else:
+            # Auto-generated ID
+            final_id = validation_result
         
         # Add entry to stream
         try:
-            result_id = self.storage.xadd(key, entry_id, fields)
+            result_id = self.storage.xadd(key, final_id, fields)
             return self.formatter.bulk_string(result_id)
         except Exception as e:
             return self.formatter.error(f"ERR {str(e)}")
     
     def _validate_entry_id(self, key: str, entry_id: str) -> Optional[str]:
         """Validate entry ID according to Redis rules."""
+        # Handle auto-generation cases
+        if entry_id == "*":
+            # Auto-generate both time and sequence
+            return self._generate_auto_id(key, None, None)
+        elif entry_id.endswith("-*"):
+            # Auto-generate sequence number for given time
+            try:
+                time_part = entry_id[:-2]  # Remove "-*"
+                time_ms = int(time_part)
+                return self._generate_auto_id(key, time_ms, None)
+            except ValueError:
+                return "ERR Invalid entry ID format"
+        
         # Parse the entry ID (format: millisecondsTime-sequenceNumber)
         try:
             if '-' not in entry_id:
@@ -410,6 +430,43 @@ class XaddCommand(Command):
             return "ERR The ID specified in XADD is equal or smaller than the target stream top item"
         
         return None
+    
+    def _generate_auto_id(self, key: str, time_ms: Optional[int], seq_num: Optional[int]) -> Optional[str]:
+        """Generate an auto ID for the given parameters."""
+        import time
+        
+        # If time is not specified, use current timestamp
+        if time_ms is None:
+            time_ms = int(time.time() * 1000)  # Convert to milliseconds
+        
+        # Get the stream to find the next sequence number
+        stream = self.storage.get_stream(key)
+        
+        if stream is None or not stream:
+            # Stream doesn't exist or is empty, start with sequence 0
+            return f"{time_ms}-0"
+        
+        # Find the highest sequence number for the given time
+        max_seq = -1
+        for existing_id in stream.keys():
+            try:
+                if '-' not in existing_id:
+                    continue
+                
+                existing_time_part, existing_seq_part = existing_id.split('-', 1)
+                existing_time = int(existing_time_part)
+                existing_seq = int(existing_seq_part)
+                
+                # If this entry has the same time, track the max sequence
+                if existing_time == time_ms and existing_seq > max_seq:
+                    max_seq = existing_seq
+                    
+            except ValueError:
+                continue
+        
+        # Return the next sequence number
+        next_seq = max_seq + 1
+        return f"{time_ms}-{next_seq}"
     
     def get_name(self) -> str:
         return "XADD"
