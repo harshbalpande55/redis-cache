@@ -475,6 +475,47 @@ class XaddCommand(Command):
         return "XADD"
 
 
+class XrangeCommand(Command):
+    """XRANGE command implementation for Redis streams."""
+    
+    def execute(self, args: List[str]) -> bytes:
+        if len(args) < 3:
+            return self.formatter.error("wrong number of arguments for 'xrange' command")
+        
+        key = args[0]
+        start = args[1]
+        end = args[2]
+        
+        # Get the range from storage
+        result = self.storage.xrange(key, start, end)
+        
+        if result is None:
+            # Stream doesn't exist, return empty array
+            return self.formatter.array([])
+        
+        # Convert result to RESP array format
+        # Each entry is an array: [id, [field1, value1, field2, value2, ...]]
+        entries = []
+        for entry_id, fields in result:
+            # Create field-value pairs array
+            field_value_pairs = []
+            for field, value in fields.items():
+                field_value_pairs.append(self.formatter.bulk_string(field))
+                field_value_pairs.append(self.formatter.bulk_string(value))
+            
+            # Create entry array: [id, [field1, value1, field2, value2, ...]]
+            entry_array = [
+                self.formatter.bulk_string(entry_id),
+                self.formatter.array(field_value_pairs)
+            ]
+            entries.append(self.formatter.array(entry_array))
+        
+        return self.formatter.array(entries)
+    
+    def get_name(self) -> str:
+        return "XRANGE"
+
+
 class TypeCommand(Command):
     """TYPE command implementation."""
     

@@ -76,6 +76,11 @@ class StorageBackend(ABC):
         pass
 
     @abstractmethod
+    def xrange(self, key: str, start: str, end: str) -> Optional[List[tuple]]:
+        """Get a range of entries from a stream. Returns list of (id, fields) tuples."""
+        pass
+
+    @abstractmethod
     def type(self, key: str) -> Optional[str]:
         """Get the type of a key. Returns None if key doesn't exist."""
         pass
@@ -373,6 +378,46 @@ class InMemoryStorage(StorageBackend):
         if entry["type"] == "stream":
             return entry["value"]
         return None
+
+    def xrange(self, key: str, start: str, end: str) -> Optional[List[tuple]]:
+        """Get a range of entries from a stream. Returns list of (id, fields) tuples."""
+        stream = self.get_stream(key)
+        if stream is None:
+            return None
+        
+        if not stream:
+            return []
+        
+        # Parse start and end IDs
+        def parse_id(entry_id: str) -> tuple:
+            """Parse entry ID into (time_ms, seq_num) tuple."""
+            if '-' not in entry_id:
+                raise ValueError("Invalid entry ID format")
+            time_part, seq_part = entry_id.split('-', 1)
+            return (int(time_part), int(seq_part))
+        
+        try:
+            start_parsed = parse_id(start)
+            end_parsed = parse_id(end)
+        except ValueError:
+            return None
+        
+        # Filter entries within the range
+        result = []
+        for entry_id, fields in stream.items():
+            try:
+                entry_parsed = parse_id(entry_id)
+                
+                # Check if entry is within range (inclusive)
+                if (entry_parsed >= start_parsed and entry_parsed <= end_parsed):
+                    result.append((entry_id, fields))
+            except ValueError:
+                continue  # Skip invalid entry IDs
+        
+        # Sort by entry ID (chronological order)
+        result.sort(key=lambda x: parse_id(x[0]))
+        
+        return result
 
     def type(self, key: str) -> Optional[str]:
         """Get the type of a key. Returns None if key doesn't exist."""

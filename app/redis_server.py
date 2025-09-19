@@ -12,7 +12,7 @@ from .blocking_manager import BlockingManager
 from .commands import (
     PingCommand, EchoCommand, SetCommand, GetCommand, 
     RpushCommand, DelCommand, ExistsCommand, LrangeCommand, LpushCommand,
-    LlenCommand, LpopCommand, BlpopCommand, XaddCommand, TypeCommand
+    LlenCommand, LpopCommand, BlpopCommand, XaddCommand, XrangeCommand, TypeCommand
 )
 
 
@@ -50,6 +50,7 @@ class RedisServer:
             DelCommand(self.storage),
             ExistsCommand(self.storage),
             XaddCommand(self.storage),
+            XrangeCommand(self.storage),
             TypeCommand(self.storage),
         ]
         
