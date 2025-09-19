@@ -1,5 +1,8 @@
 import asyncio
 
+# Global storage for key-value pairs
+storage = {}
+
 
 def parse_redis_command(data):
     """Parse Redis protocol command from bytes"""
@@ -60,6 +63,26 @@ def handle_ping_command(args):
     else:
         return b"-ERR wrong number of arguments for 'ping' command\r\n"
 
+def handle_set_command(args):
+    """Handle SET command"""
+    if len(args) != 2:
+        return b"-ERR wrong number of arguments for 'set' command\r\n"
+    
+    key, value = args
+    storage[key] = value
+    return b"+OK\r\n"
+
+def handle_get_command(args):
+    """Handle GET command"""
+    if len(args) != 1:
+        return b"-ERR wrong number of arguments for 'get' command\r\n"
+    
+    key = args[0]
+    if key in storage:
+        value = storage[key]
+        return f"${len(value)}\r\n{value}\r\n".encode('utf-8')
+    else:
+        return b"$-1\r\n"  # Redis null response for non-existent keys
 
 async def handle_client(reader, writer):
     """Handle a single client connection using async I/O"""
@@ -83,6 +106,10 @@ async def handle_client(reader, writer):
                     response = handle_ping_command(args)
                 elif command == "ECHO":
                     response = handle_echo_command(args)
+                elif command == "SET":
+                    response = handle_set_command(args)
+                elif command == "GET":
+                    response = handle_get_command(args)
                 else:
                     # Unknown command
                     response = f"-ERR unknown command '{command}'\r\n".encode('utf-8')
