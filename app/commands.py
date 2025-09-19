@@ -697,6 +697,10 @@ class ExecCommand(Command):
 class InfoCommand(Command):
     """INFO command implementation for Redis replication."""
     
+    def __init__(self, storage: StorageBackend, server=None):
+        super().__init__(storage)
+        self.server = server
+    
     def execute(self, args: List[str]) -> bytes:
         if len(args) != 1:
             return self.formatter.error("wrong number of arguments for 'info' command")
@@ -704,10 +708,11 @@ class InfoCommand(Command):
         section = args[0].lower()
         
         if section == "replication":
-            # Return basic replication information
-            # For now, we'll return a simple replication info string
-            # In a full implementation, this would include detailed replication state
-            info = "role:master\r\n"
+            # Return replication information based on server role
+            if self.server and self.server.is_replica:
+                info = "role:slave\r\n"
+            else:
+                info = "role:master\r\n"
             return self.formatter.bulk_string(info)
         else:
             # For other sections, return empty info for now

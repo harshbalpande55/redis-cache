@@ -14,6 +14,8 @@ async def main():
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Redis server')
     parser.add_argument('--port', type=int, default=6379, help='Port to listen on (default: 6379)')
+    parser.add_argument('--replicaof', nargs=2, metavar=('MASTER_HOST', 'MASTER_PORT'), 
+                       help='Replicate from master at MASTER_HOST:MASTER_PORT')
     
     args = parser.parse_args()
     
@@ -22,6 +24,12 @@ async def main():
 
     # Create and start the Redis server
     redis_server = RedisServer()
+    
+    # Set replica configuration if --replicaof is provided
+    if args.replicaof:
+        master_host, master_port = args.replicaof
+        redis_server.set_replica_config(master_host, int(master_port))
+    
     await redis_server.start_server("localhost", args.port)
 
 

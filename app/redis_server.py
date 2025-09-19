@@ -36,6 +36,11 @@ class RedisServer:
         
         # Transaction state management - track per client
         self.client_transactions = {}  # client_id -> {'in_transaction': bool, 'commands': list}
+        
+        # Replica configuration
+        self.is_replica = False
+        self.master_host = None
+        self.master_port = None
     
     def _register_commands(self) -> None:
         """Register all available commands."""
@@ -57,12 +62,18 @@ class RedisServer:
             XreadCommand(self.storage),
             TypeCommand(self.storage),
             IncrCommand(self.storage),
-            InfoCommand(self.storage),
+            InfoCommand(self.storage, self),
             # MULTI and EXEC are now handled directly in handle_client
         ]
         
         for command in commands:
             self.command_registry.register(command)
+    
+    def set_replica_config(self, master_host: str, master_port: int) -> None:
+        """Set this server as a replica of the specified master."""
+        self.is_replica = True
+        self.master_host = master_host
+        self.master_port = master_port
     
     async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         """Handle a single client connection using async I/O."""
