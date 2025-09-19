@@ -95,7 +95,43 @@ class RedisServer:
                                 timeout = int(parts[1])
                                 keys = parts[2].split(':')
                                 ids = parts[3].split(':')
-                                await self._handle_blocking_xread(writer, keys, ids, timeout)
+                                
+                                # Resolve $ IDs to actual max IDs for blocking
+                                resolved_ids = []
+                                for i, stream_id in enumerate(ids):
+                                    if stream_id == "$":
+                                        # Find the max ID in this stream
+                                        stream = self.storage.get_stream(keys[i])
+                                        if stream and stream:
+                                            max_id = None
+                                            max_time = -1
+                                            max_seq = -1
+                                            
+                                            for entry_id in stream.keys():
+                                                try:
+                                                    if '-' not in entry_id:
+                                                        continue
+                                                    
+                                                    time_part, seq_part = entry_id.split('-', 1)
+                                                    time_ms = int(time_part)
+                                                    seq_num = int(seq_part)
+                                                    
+                                                    if (time_ms > max_time or 
+                                                        (time_ms == max_time and seq_num > max_seq)):
+                                                        max_time = time_ms
+                                                        max_seq = seq_num
+                                                        max_id = entry_id
+                                                        
+                                                except ValueError:
+                                                    continue
+                                            
+                                            resolved_ids.append(max_id if max_id else "0-0")
+                                        else:
+                                            resolved_ids.append("0-0")
+                                    else:
+                                        resolved_ids.append(stream_id)
+                                
+                                await self._handle_blocking_xread(writer, keys, resolved_ids, timeout)
                         else:
                             # Send normal response
                             writer.write(response)
