@@ -692,3 +692,26 @@ class ExecCommand(Command):
     
     def get_name(self) -> str:
         return "EXEC"
+
+
+class InfoCommand(Command):
+    """INFO command implementation for Redis replication."""
+    
+    def execute(self, args: List[str]) -> bytes:
+        if len(args) != 1:
+            return self.formatter.error("wrong number of arguments for 'info' command")
+        
+        section = args[0].lower()
+        
+        if section == "replication":
+            # Return basic replication information
+            # For now, we'll return a simple replication info string
+            # In a full implementation, this would include detailed replication state
+            info = "role:master\r\n"
+            return self.formatter.bulk_string(info)
+        else:
+            # For other sections, return empty info for now
+            return self.formatter.bulk_string("")
+    
+    def get_name(self) -> str:
+        return "INFO"
