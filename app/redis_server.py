@@ -88,6 +88,15 @@ class RedisServer:
             # Connect to master
             reader, writer = await asyncio.open_connection(self.master_host, self.master_port)
             
+            # Send PING command first
+            ping_command = f"*1\r\n$4\r\nPING\r\n"
+            writer.write(ping_command.encode())
+            await writer.drain()
+            
+            # Read response
+            response = await reader.read(1024)
+            print(f"Master response to PING: {response.decode()}")
+            
             # Send REPLCONF listening-port command
             port_command = f"*3\r\n$8\r\nREPLCONF\r\n$14\r\nlistening-port\r\n${len(str(replica_port))}\r\n{replica_port}\r\n"
             writer.write(port_command.encode())
