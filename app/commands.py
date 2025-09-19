@@ -485,9 +485,19 @@ class XrangeCommand(Command):
         key = args[0]
         start = args[1]
         end = args[2]
+        count = None
+        
+        # Parse optional COUNT argument
+        if len(args) >= 5 and args[3].upper() == "COUNT":
+            try:
+                count = int(args[4])
+                if count < 0:
+                    return self.formatter.error("COUNT must be a positive integer")
+            except ValueError:
+                return self.formatter.error("COUNT must be a positive integer")
         
         # Get the range from storage
-        result = self.storage.xrange(key, start, end)
+        result = self.storage.xrange(key, start, end, count)
         
         if result is None:
             # Stream doesn't exist, return empty array

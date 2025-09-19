@@ -76,7 +76,7 @@ class StorageBackend(ABC):
         pass
 
     @abstractmethod
-    def xrange(self, key: str, start: str, end: str) -> Optional[List[tuple]]:
+    def xrange(self, key: str, start: str, end: str, count: Optional[int] = None) -> Optional[List[tuple]]:
         """Get a range of entries from a stream. Returns list of (id, fields) tuples."""
         pass
 
@@ -379,7 +379,7 @@ class InMemoryStorage(StorageBackend):
             return entry["value"]
         return None
 
-    def xrange(self, key: str, start: str, end: str) -> Optional[List[tuple]]:
+    def xrange(self, key: str, start: str, end: str, count: Optional[int] = None) -> Optional[List[tuple]]:
         """Get a range of entries from a stream. Returns list of (id, fields) tuples."""
         stream = self.get_stream(key)
         if stream is None:
@@ -420,6 +420,13 @@ class InMemoryStorage(StorageBackend):
         
         # Sort by entry ID (chronological order)
         result.sort(key=lambda x: parse_id(x[0]))
+        
+        # Apply COUNT limit if specified
+        if count is not None:
+            if count == 0:
+                result = []  # COUNT 0 returns empty array
+            elif count > 0:
+                result = result[:count]
         
         return result
 
