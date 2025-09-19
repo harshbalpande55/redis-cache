@@ -49,6 +49,11 @@ class StorageBackend(ABC):
     def lpush(self, key: str, *values: str) -> int:
         """Push values to the left of a list. Returns the new length of the list."""
         pass
+    
+    @abstractmethod
+    def llen(self, key: str) -> int:
+        """Get the length of a list. Returns 0 if key doesn't exist or is not a list."""
+        pass
 
 class InMemoryStorage(StorageBackend):
     """In-memory storage implementation with expiration support."""
@@ -240,5 +245,15 @@ class InMemoryStorage(StorageBackend):
         # Key exists and is a list, prepend values
         # Reverse values so they appear in the correct order when prepended
         entry["value"] = list(reversed(values)) + entry["value"]
+        return len(entry["value"])
+
+    def llen(self, key: str) -> int:
+        """Get the length of a list. Returns 0 if key doesn't exist or is not a list."""
+        if key not in self._data:
+            return 0
+        
+        entry = self._data[key]
+        if entry["type"] != "list":
+            return 0
         return len(entry["value"])
     

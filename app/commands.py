@@ -209,3 +209,17 @@ class LpushCommand(Command):
     
     def get_name(self) -> str:
         return "LPUSH"
+
+class LlenCommand(Command):
+    """LLEN command implementation."""
+    
+    def execute(self, args: List[str]) -> bytes:
+        if len(args) < 1:
+            return self.formatter.error("wrong number of arguments for 'llen' command")
+        
+        key = args[0]
+        length = self.storage.llen(key)
+        return self.formatter.integer(length)
+    
+    def get_name(self) -> str:
+        return "LLEN"
