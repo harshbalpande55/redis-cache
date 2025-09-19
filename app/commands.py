@@ -712,7 +712,8 @@ class InfoCommand(Command):
             if self.server and self.server.is_replica:
                 info = "role:slave\r\n"
             else:
-                info = "role:master\r\n"
+                # Master replication info
+                info = f"role:master\r\nmaster_replid:{self.server.master_replid}\r\nmaster_repl_offset:{self.server.master_repl_offset}\r\n"
             return self.formatter.bulk_string(info)
         else:
             # For other sections, return empty info for now

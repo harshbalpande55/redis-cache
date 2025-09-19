@@ -41,6 +41,10 @@ class RedisServer:
         self.is_replica = False
         self.master_host = None
         self.master_port = None
+        
+        # Replication state
+        self.master_replid = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"  # Default replication ID
+        self.master_repl_offset = 0  # Replication offset
     
     def _register_commands(self) -> None:
         """Register all available commands."""
