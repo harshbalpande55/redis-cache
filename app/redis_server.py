@@ -11,7 +11,7 @@ from .command_registry import CommandRegistry
 from .commands import (
     PingCommand, EchoCommand, SetCommand, GetCommand, 
     RpushCommand, DelCommand, ExistsCommand, LrangeCommand, LpushCommand,
-    LlenCommand
+    LlenCommand, LpopCommand
 )
 
 
@@ -41,6 +41,7 @@ class RedisServer:
             LrangeCommand(self.storage),
             LpushCommand(self.storage),
             LlenCommand(self.storage),
+            LpopCommand(self.storage),
             DelCommand(self.storage),
             ExistsCommand(self.storage),
         ]

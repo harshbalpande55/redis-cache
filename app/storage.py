@@ -55,6 +55,11 @@ class StorageBackend(ABC):
         """Get the length of a list. Returns 0 if key doesn't exist or is not a list."""
         pass
 
+    @abstractmethod
+    def lpop(self, key: str) -> Optional[str]:
+        """Pop a value from the left of a list. Returns None if key doesn't exist or is not a list."""
+        pass
+
 class InMemoryStorage(StorageBackend):
     """In-memory storage implementation with expiration support."""
     
@@ -256,4 +261,28 @@ class InMemoryStorage(StorageBackend):
         if entry["type"] != "list":
             return 0
         return len(entry["value"])
+    
+    def lpop(self, key: str) -> Optional[str]:
+        """Pop a value from the left of a list. Returns None if key doesn't exist or is not a list."""
+        if key not in self._data:
+            return None
+        
+        entry = self._data[key]
+        
+        # Check if the key has expired
+        if entry["expires_at"] is not None and time.time() > entry["expires_at"]:
+            # Key has expired, remove it
+            del self._data[key]
+            return None
+        
+        # Only pop from list values
+        if entry["type"] != "list":
+            return None
+        
+        # Check if list is empty
+        if not entry["value"]:
+            return None
+        
+        # Pop the first element (leftmost)
+        return entry["value"].pop(0)
     

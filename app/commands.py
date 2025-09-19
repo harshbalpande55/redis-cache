@@ -223,3 +223,17 @@ class LlenCommand(Command):
     
     def get_name(self) -> str:
         return "LLEN"
+
+class LpopCommand(Command):
+    """LPOP command implementation."""
+    
+    def execute(self, args: List[str]) -> bytes:
+        if len(args) < 1:
+            return self.formatter.error("wrong number of arguments for 'lpop' command")
+        
+        key = args[0]
+        value = self.storage.lpop(key)
+        return self.formatter.bulk_string(value)
+    
+    def get_name(self) -> str:
+        return "LPOP"
