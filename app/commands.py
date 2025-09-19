@@ -443,8 +443,11 @@ class XaddCommand(Command):
         stream = self.storage.get_stream(key)
         
         if stream is None or not stream:
-            # Stream doesn't exist or is empty, start with sequence 0
-            return f"{time_ms}-0"
+            # Stream doesn't exist or is empty, start with sequence 1 (since 0-0 is invalid)
+            if time_ms == 0:
+                return "0-1"
+            else:
+                return f"{time_ms}-0"
         
         # Find the highest sequence number for the given time
         max_seq = -1
