@@ -1,5 +1,4 @@
 import socket
-from sqlite3 import Connection  # noqa: F401
 
 
 def main():
@@ -10,7 +9,23 @@ def main():
     # #
     server_socket = socket.create_server(("localhost", 6379), reuse_port=True)
     connection, _ = server_socket.accept() # wait for client
-    connection.send(b"+PONG\r\n")
+    
+    # Loop to handle multiple commands on the same connection
+    while True:
+        try:
+            # Read data from the client
+            data = connection.recv(1024)
+            if not data:
+                # Client disconnected
+                break
+            
+            # For this stage, respond with +PONG\r\n to any command
+            connection.send(b"+PONG\r\n")
+        except ConnectionResetError:
+            # Client disconnected unexpectedly
+            break
+    
+    connection.close()
 
 
 if __name__ == "__main__":
