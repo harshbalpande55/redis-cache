@@ -66,6 +66,16 @@ class StorageBackend(ABC):
         pass
 
     @abstractmethod
+    def xadd(self, key: str, entry_id: str, fields: Dict[str, str]) -> str:
+        """Add an entry to a stream. Returns the entry ID."""
+        pass
+    
+    @abstractmethod
+    def get_stream(self, key: str) -> Optional[Dict[str, Dict[str, str]]]:
+        """Get a stream by key. Returns None if key doesn't exist or is not a stream."""
+        pass
+
+    @abstractmethod
     def type(self, key: str) -> Optional[str]:
         """Get the type of a key. Returns None if key doesn't exist."""
         pass
@@ -310,6 +320,60 @@ class InMemoryStorage(StorageBackend):
             return None
         return result[0]
     
+    def xadd(self, key: str, entry_id: str, fields: Dict[str, str]) -> str:
+        """Add an entry to a stream. Returns the entry ID."""
+        if key not in self._data:
+            # Create new stream
+            self._data[key] = {
+                "value": {},
+                "type": "stream",
+                "expires_at": None
+            }
+        
+        entry = self._data[key]
+        
+        # Check if the key has expired
+        if entry["expires_at"] is not None and time.time() > entry["expires_at"]:
+            # Key has expired, create new stream
+            self._data[key] = {
+                "value": {},
+                "type": "stream",
+                "expires_at": None
+            }
+            entry = self._data[key]
+        
+        # If key exists but is not a stream, convert it to a stream
+        if entry["type"] != "stream":
+            # Convert existing value to stream
+            self._data[key] = {
+                "value": {},
+                "type": "stream",
+                "expires_at": entry["expires_at"]
+            }
+            entry = self._data[key]
+        
+        # Add entry to stream
+        entry["value"][entry_id] = fields
+        return entry_id
+    
+    def get_stream(self, key: str) -> Optional[Dict[str, Dict[str, str]]]:
+        """Get a stream by key. Returns None if key doesn't exist or is not a stream."""
+        if key not in self._data:
+            return None
+        
+        entry = self._data[key]
+        
+        # Check if the key has expired
+        if entry["expires_at"] is not None and time.time() > entry["expires_at"]:
+            # Key has expired, remove it
+            del self._data[key]
+            return None
+        
+        # Only return stream values
+        if entry["type"] == "stream":
+            return entry["value"]
+        return None
+
     def type(self, key: str) -> Optional[str]:
         """Get the type of a key. Returns None if key doesn't exist."""
         if key not in self._data:

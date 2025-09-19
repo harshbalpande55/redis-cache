@@ -316,6 +316,37 @@ class BlpopCommand(Command):
         return "BLPOP"
 
 
+class XaddCommand(Command):
+    """XADD command implementation for Redis streams."""
+    
+    def execute(self, args: List[str]) -> bytes:
+        if len(args) < 3:
+            return self.formatter.error("wrong number of arguments for 'xadd' command")
+        
+        key = args[0]
+        entry_id = args[1]
+        
+        # Parse field-value pairs
+        if len(args) % 2 != 0:
+            return self.formatter.error("wrong number of arguments for 'xadd' command")
+        
+        fields = {}
+        for i in range(2, len(args), 2):
+            field = args[i]
+            value = args[i + 1]
+            fields[field] = value
+        
+        # Add entry to stream
+        try:
+            result_id = self.storage.xadd(key, entry_id, fields)
+            return self.formatter.bulk_string(result_id)
+        except Exception as e:
+            return self.formatter.error(f"ERR {str(e)}")
+    
+    def get_name(self) -> str:
+        return "XADD"
+
+
 class TypeCommand(Command):
     """TYPE command implementation."""
     
