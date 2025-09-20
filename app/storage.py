@@ -877,8 +877,8 @@ class InMemoryStorage(StorageBackend):
         a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
         c = 2 * math.asin(math.sqrt(a))
         
-        # Radius of earth in meters
-        r = 6371000
+        # Radius of earth in meters (exact value used by Redis)
+        r = 6372797.560856
         return c * r
     
     def geoadd(self, key: str, *longitude_latitude_member_pairs: Union[str, float]) -> int:
