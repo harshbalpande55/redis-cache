@@ -899,15 +899,12 @@ class WaitCommand(Command):
                 if offset >= current_offset:
                     ack_count += 1
             
-            print(f"WAIT: current_offset={current_offset}, ack_count={ack_count}, numreplicas={numreplicas}")
-            print(f"WAIT: replica offsets: {[offset for _, _, offset in self.server.connected_replicas]}")
-            
             # Check if we have enough acknowledgments
             if ack_count >= numreplicas:
                 break
             
-            # Small sleep to avoid busy waiting
-            time.sleep(0.001)
+            # Longer sleep to allow ACK processing
+            time.sleep(0.01)
         
         return self.formatter.integer(min(ack_count, numreplicas))
     
