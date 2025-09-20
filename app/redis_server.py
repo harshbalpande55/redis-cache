@@ -634,8 +634,16 @@ class RedisServer:
                                 if self.is_client_subscribed(client_id) and not self.is_command_allowed_in_subscribed_mode(command):
                                     response = self.response_formatter.error(f"ERR Can't execute '{command.lower()}': only (P|S)SUBSCRIBE / (P|S)UNSUBSCRIBE / PING / QUIT / RESET are allowed in this context")
                                 else:
-                                    # Queue command for later execution
-                                    self.client_transactions[client_id]['commands'].append((command, args))
+                                    # Handle PING command specially for subscribed mode in transactions
+                                    if command == "PING" and self.is_client_subscribed(client_id):
+                                        # In subscribed mode, PING returns ["pong", ""]
+                                        response = self.response_formatter.array([
+                                            self.response_formatter.bulk_string("pong"),
+                                            self.response_formatter.bulk_string("")
+                                        ])
+                                    else:
+                                        # Queue command for later execution
+                                        self.client_transactions[client_id]['commands'].append((command, args))
                                     
                                     # Check if this is a replica connection
                                     is_replica = is_replica_connection or self.client_transactions[client_id].get('is_replica', False)
@@ -654,8 +662,15 @@ class RedisServer:
                                 if self.is_client_subscribed(client_id) and not self.is_command_allowed_in_subscribed_mode(command):
                                     response = self.response_formatter.error(f"ERR Can't execute '{command.lower()}': only (P|S)SUBSCRIBE / (P|S)UNSUBSCRIBE / PING / QUIT / RESET are allowed in this context")
                                 else:
+                                    # Handle PING command specially for subscribed mode
+                                    if command == "PING" and self.is_client_subscribed(client_id):
+                                        # In subscribed mode, PING returns ["pong", ""]
+                                        response = self.response_formatter.array([
+                                            self.response_formatter.bulk_string("pong"),
+                                            self.response_formatter.bulk_string("")
+                                        ])
                                     # Handle WAIT command specially since it needs async execution
-                                    if command == "WAIT":
+                                    elif command == "WAIT":
                                         # Execute WAIT command with async support
                                         try:
                                             numreplicas = int(args[0])
