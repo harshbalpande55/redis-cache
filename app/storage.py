@@ -929,7 +929,7 @@ class InMemoryStorage(StorageBackend):
             
             # Store geohash as score and coordinates for later retrieval
             geohash = self._encode_geohash(longitude, latitude)
-            entry["value"][member] = (geohash, longitude, latitude)
+            entry["value"][member] = geohash
         
         return new_locations
     
@@ -952,7 +952,8 @@ class InMemoryStorage(StorageBackend):
         result = []
         for member in members:
             if member in entry["value"]:
-                _, longitude, latitude = entry["value"][member]
+                geohash = entry["value"][member]
+                latitude, longitude = self._decode_geohash(geohash)
                 result.append((longitude, latitude))
             else:
                 result.append(None)
@@ -978,8 +979,11 @@ class InMemoryStorage(StorageBackend):
         if member1 not in entry["value"] or member2 not in entry["value"]:
             return None
         
-        _, lon1, lat1 = entry["value"][member1]
-        _, lon2, lat2 = entry["value"][member2]
+        geohash1 = entry["value"][member1]
+        geohash2 = entry["value"][member2]
+        
+        lat1, lon1 = self._decode_geohash(geohash1)
+        lat2, lon2 = self._decode_geohash(geohash2)
         
         # Calculate distance in meters
         distance_m = self._haversine_distance(lon1, lat1, lon2, lat2)
@@ -1024,7 +1028,8 @@ class InMemoryStorage(StorageBackend):
         
         # Find members within radius
         results = []
-        for member, (_, lon, lat) in entry["value"].items():
+        for member, geohash in entry["value"].items():
+            lat, lon = self._decode_geohash(geohash)
             distance = self._haversine_distance(longitude, latitude, lon, lat)
             if distance <= radius_m:
                 result = [member]
