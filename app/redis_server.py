@@ -637,9 +637,9 @@ class RedisServer:
             replica_offset = 0  # Track our replication offset
             
             while True:
-                # Read data from master with timeout to ensure we're always reading
+                # Read data from master with a smaller timeout to ensure we're always reading
                 try:
-                    data = await asyncio.wait_for(reader.read(1024), timeout=1.0)
+                    data = await asyncio.wait_for(reader.read(1024), timeout=0.1)
                     if not data:
                         print("Master disconnected")
                         break
