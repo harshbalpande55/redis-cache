@@ -1072,3 +1072,25 @@ class KeysCommand(Command):
     
     def get_name(self) -> str:
         return "KEYS"
+
+
+class SubscribeCommand(Command):
+    """SUBSCRIBE command implementation for Redis pub/sub."""
+    
+    def __init__(self, storage: StorageBackend, server=None):
+        super().__init__(storage)
+        self.server = server
+    
+    def execute(self, args: List[str]) -> bytes:
+        if len(args) < 1:
+            return self.formatter.error("wrong number of arguments for 'subscribe' command")
+        
+        # For now, we only handle a single channel subscription
+        channel = args[0]
+        
+        # This is a special command that requires server context to track subscriptions
+        # Return a special response that indicates subscription is needed
+        return f"SUBSCRIBE_REQUIRED:{channel}".encode('utf-8')
+    
+    def get_name(self) -> str:
+        return "SUBSCRIBE"

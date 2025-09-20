@@ -14,7 +14,7 @@ from app.rdb_parser import RDBParser
 from app.commands import (
     PingCommand, EchoCommand, SetCommand, GetCommand, 
     RpushCommand, DelCommand, ExistsCommand, LrangeCommand, LpushCommand,
-    LlenCommand, LpopCommand, BlpopCommand, XaddCommand, XrangeCommand, XreadCommand, TypeCommand, IncrCommand, InfoCommand, ReplconfCommand, PsyncCommand, WaitCommand, ConfigCommand, SaveCommand, BgsaveCommand, KeysCommand
+    LlenCommand, LpopCommand, BlpopCommand, XaddCommand, XrangeCommand, XreadCommand, TypeCommand, IncrCommand, InfoCommand, ReplconfCommand, PsyncCommand, WaitCommand, ConfigCommand, SaveCommand, BgsaveCommand, KeysCommand, SubscribeCommand
 )
 
 
@@ -73,6 +73,10 @@ class RedisServer:
         
         # RDB parser
         self.rdb_parser = RDBParser()
+        
+        # Pub/Sub subscription management
+        self.subscriptions = {}  # channel -> set of client writers
+        self.client_subscriptions = {}  # client_id -> set of channels
     
     def _register_commands(self) -> None:
         """Register all available commands."""
@@ -102,6 +106,7 @@ class RedisServer:
             SaveCommand(self.storage, self),
             BgsaveCommand(self.storage, self),
             KeysCommand(self.storage),
+            SubscribeCommand(self.storage, self),
             # MULTI and EXEC are now handled directly in handle_client
         ]
         
@@ -118,6 +123,46 @@ class RedisServer:
         """Set configuration parameters for RDB persistence."""
         self.config['dir'] = dir_path
         self.config['dbfilename'] = dbfilename
+    
+    def subscribe_client_to_channel(self, client_id: int, writer: asyncio.StreamWriter, channel: str) -> int:
+        """Subscribe a client to a channel. Returns the number of channels the client is subscribed to."""
+        # Add client to channel's subscription list
+        if channel not in self.subscriptions:
+            self.subscriptions[channel] = set()
+        self.subscriptions[channel].add(writer)
+        
+        # Add channel to client's subscription list
+        if client_id not in self.client_subscriptions:
+            self.client_subscriptions[client_id] = set()
+        self.client_subscriptions[client_id].add(channel)
+        
+        # Return the number of channels this client is subscribed to
+        return len(self.client_subscriptions[client_id])
+    
+    def unsubscribe_client_from_channel(self, client_id: int, writer: asyncio.StreamWriter, channel: str) -> int:
+        """Unsubscribe a client from a channel. Returns the number of channels the client is subscribed to."""
+        # Remove client from channel's subscription list
+        if channel in self.subscriptions:
+            self.subscriptions[channel].discard(writer)
+            if not self.subscriptions[channel]:
+                del self.subscriptions[channel]
+        
+        # Remove channel from client's subscription list
+        if client_id in self.client_subscriptions:
+            self.client_subscriptions[client_id].discard(channel)
+            if not self.client_subscriptions[client_id]:
+                del self.client_subscriptions[client_id]
+                return 0
+            return len(self.client_subscriptions[client_id])
+        
+        return 0
+    
+    def cleanup_client_subscriptions(self, client_id: int, writer: asyncio.StreamWriter) -> None:
+        """Clean up all subscriptions for a client when they disconnect."""
+        if client_id in self.client_subscriptions:
+            channels = list(self.client_subscriptions[client_id])
+            for channel in channels:
+                self.unsubscribe_client_from_channel(client_id, writer, channel)
     
     def load_rdb_data(self) -> None:
         """Load data from RDB file if it exists."""
@@ -669,6 +714,24 @@ class RedisServer:
                                         resolved_ids.append(stream_id)
                                 
                                 await self._handle_blocking_xread(writer, keys, resolved_ids, timeout)
+                        elif response and response.startswith(b"SUBSCRIBE_REQUIRED"):
+                            # Handle SUBSCRIBE command
+                            channel = response.decode('utf-8').split(':')[1]
+                            subscription_count = self.subscribe_client_to_channel(client_id, writer, channel)
+                            
+                            # Send the SUBSCRIBE response: ["subscribe", channel, count]
+                            subscribe_response = self.response_formatter.array([
+                                self.response_formatter.bulk_string("subscribe"),
+                                self.response_formatter.bulk_string(channel),
+                                self.response_formatter.integer(subscription_count)
+                            ])
+                            writer.write(subscribe_response)
+                            await writer.drain()
+                            
+                            # After SUBSCRIBE, the client enters pub/sub mode
+                            # For now, we'll just keep the connection alive
+                            # In a full implementation, we would handle PUBLISH commands here
+                            print(f"Client {client_id} subscribed to channel '{channel}' (total subscriptions: {subscription_count})")
                         else:
                             # Send normal response (skip if response is None for replica commands)
                             if response is not None:
@@ -688,6 +751,9 @@ class RedisServer:
         finally:
             # Clean up blocking client if it exists
             self.blocking_manager.remove_blocking_client(writer)
+            
+            # Clean up subscriptions for this client
+            self.cleanup_client_subscriptions(client_id, writer)
             
             # Only clean up if this is not a replica connection
             # Replica connections are handled by the separate _handle_replica_connection task
@@ -793,6 +859,8 @@ class RedisServer:
         finally:
             # Remove replica connection when it disconnects
             self.remove_replica_connection(writer)
+            # Clean up subscriptions for this client
+            self.cleanup_client_subscriptions(client_id, writer)
             # Clean up transaction state for this client
             if client_id in self.client_transactions:
                 del self.client_transactions[client_id]
