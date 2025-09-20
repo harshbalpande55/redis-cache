@@ -1066,7 +1066,9 @@ class KeysCommand(Command):
             # For now, just return exact matches
             matching_keys = [key for key in all_keys if key == pattern]
         
-        return self.formatter.array([key.encode() for key in matching_keys])
+        # Format each key as a bulk string
+        formatted_keys = [self.formatter.bulk_string(key) for key in matching_keys]
+        return self.formatter.array(formatted_keys)
     
     def get_name(self) -> str:
         return "KEYS"
