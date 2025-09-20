@@ -898,8 +898,8 @@ class WaitCommand(Command):
             # Check if we have enough ACKs
             if self.server.replica_ack_counter >= numreplicas:
                 break
-            # Small sleep to avoid busy waiting
-            time.sleep(0.01)
+            # Longer sleep to allow ACK processing to complete
+            time.sleep(0.1)
         
         # Get the ACK count and reset it
         ack_count = self.server.replica_ack_counter
