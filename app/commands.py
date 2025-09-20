@@ -877,10 +877,8 @@ class WaitCommand(Command):
         if numreplicas == 0:
             return self.formatter.integer(0)
         
-        # Check if previous command was a data-modifying command
-        if self.server.prev_command != "SET":
-            # If previous command wasn't SET, just return the number of connected replicas
-            return self.formatter.integer(len(self.server.connected_replicas))
+        # Always wait for ACKs when there are connected replicas
+        # The test expects WAIT to wait for acknowledgments
         
         # Send REPLCONF GETACK to all replicas
         for reader, writer, offset in self.server.connected_replicas:
