@@ -143,10 +143,8 @@ class RedisServer:
                         value = data['value']
                         expires_at = data.get('expires_at')
                         
-                        # Skip expired keys during loading
-                        if expires_at is not None and current_time > expires_at:
-                            print(f"Skipping expired key: {key}")
-                            continue
+                        # Load all keys, including expired ones
+                        # The GET command will handle expiry checking
                         
                         if isinstance(value, str):
                             # String value
@@ -174,7 +172,7 @@ class RedisServer:
                             self.storage.set(key, str(value), expires_at)
                             loaded_count += 1
                     
-                    print(f"Loaded {loaded_count} keys from RDB file (skipped {len(parsed_data) - loaded_count} expired keys)")
+                    print(f"Loaded {loaded_count} keys from RDB file")
                 else:
                     print("RDB file is empty")
             except Exception as e:
