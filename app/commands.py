@@ -5,6 +5,7 @@ Each command is a separate class for better organization and extensibility.
 from abc import ABC, abstractmethod
 from typing import List, Optional
 import time
+import asyncio
 
 from app.protocol import RedisResponseFormatter
 from app.storage import StorageBackend
@@ -1103,7 +1104,7 @@ class PublishCommand(Command):
         super().__init__(storage)
         self.server = server
     
-    def execute(self, args: List[str]) -> bytes:
+    def execute(self, args: List[str], client_id: int = None, writer: asyncio.StreamWriter = None) -> bytes:
         if len(args) != 2:
             return self.formatter.error("wrong number of arguments for 'publish' command")
         
@@ -1115,6 +1116,19 @@ class PublishCommand(Command):
         
         # Get the number of subscribers for this channel
         subscriber_count = len(self.server.subscriptions.get(channel, set()))
+        
+        # Deliver message to all subscribers
+        if subscriber_count > 0:
+            # Create the message response: ["message", channel, message]
+            message_response = self.formatter.array([
+                self.formatter.bulk_string("message"),
+                self.formatter.bulk_string(channel),
+                self.formatter.bulk_string(message)
+            ])
+            
+            # Schedule async message delivery
+            import asyncio
+            asyncio.create_task(self.server.deliver_message_to_subscribers(channel, message_response))
         
         # Return the number of subscribers as a RESP integer
         return self.formatter.integer(subscriber_count)

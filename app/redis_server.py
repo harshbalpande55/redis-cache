@@ -186,6 +186,31 @@ class RedisServer:
         }
         return command.upper() in allowed_commands
     
+    async def deliver_message_to_subscribers(self, channel: str, message_response: bytes) -> None:
+        """Deliver a message to all subscribers of a channel."""
+        if channel not in self.subscriptions:
+            return
+        
+        # Get all subscribers for this channel
+        subscribers = self.subscriptions[channel].copy()  # Copy to avoid modification during iteration
+        
+        # Send message to each subscriber
+        failed_subscribers = []
+        for writer in subscribers:
+            try:
+                writer.write(message_response)
+                await writer.drain()
+                print(f"Delivered message to subscriber on channel '{channel}'")
+            except Exception as e:
+                print(f"Failed to deliver message to subscriber: {e}")
+                failed_subscribers.append(writer)
+        
+        # Remove failed subscribers
+        for writer in failed_subscribers:
+            self.subscriptions[channel].discard(writer)
+            if not self.subscriptions[channel]:
+                del self.subscriptions[channel]
+    
     def load_rdb_data(self) -> None:
         """Load data from RDB file if it exists."""
         import os
@@ -643,8 +668,18 @@ class RedisServer:
                                             self.response_formatter.bulk_string("")
                                         ])
                                     else:
-                                        # Queue command for later execution
-                                        self.client_transactions[client_id]['commands'].append((command, args))
+                                        # Handle PUBLISH command specially in transactions
+                                        if command == "PUBLISH":
+                                            # Execute PUBLISH command with async support
+                                            publish_command = self.command_registry.get_command("PUBLISH")
+                                            if publish_command:
+                                                response = publish_command.execute(args, client_id, writer)
+                                                # The message delivery is handled within the command
+                                            else:
+                                                response = self.response_formatter.error("unknown command 'publish'")
+                                        else:
+                                            # Queue command for later execution
+                                            self.client_transactions[client_id]['commands'].append((command, args))
                                     
                                     # Check if this is a replica connection
                                     is_replica = is_replica_connection or self.client_transactions[client_id].get('is_replica', False)
@@ -681,8 +716,18 @@ class RedisServer:
                                         except (ValueError, IndexError):
                                             response = self.response_formatter.error("wrong number of arguments for 'wait' command")
                                     else:
-                                        # Execute other commands normally
-                                        response = self.command_registry.execute_command(command, args)
+                                        # Handle PUBLISH command specially since it needs async message delivery
+                                        if command == "PUBLISH":
+                                            # Execute PUBLISH command with async support
+                                            publish_command = self.command_registry.get_command("PUBLISH")
+                                            if publish_command:
+                                                response = publish_command.execute(args, client_id, writer)
+                                                # The message delivery is handled within the command
+                                            else:
+                                                response = self.response_formatter.error("unknown command 'publish'")
+                                        else:
+                                            # Execute other commands normally
+                                            response = self.command_registry.execute_command(command, args)
                                 
                                 # Check if this is a replica connection
                                 is_replica = is_replica_connection or self.client_transactions[client_id].get('is_replica', False)
