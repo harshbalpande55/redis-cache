@@ -643,6 +643,7 @@ class RedisServer:
                     print("Master disconnected")
                     break
                 
+                print(f"Replica {client_id} received {len(data)} bytes from master: {data[:100]}...")
                 buffer += data
                 
                 # Process complete commands from buffer
@@ -652,6 +653,7 @@ class RedisServer:
                         command, args = self.protocol_parser.parse_command(buffer)
                         if command:
                             print(f"Replica {client_id} received command from master: {command} {' '.join(args)}")
+                            print(f"Replica {client_id} buffer length: {len(buffer)}, command length: {len(f'*{len([command] + args)}\\r\\n' + ''.join(f'${len(part)}\\r\\n{part}\\r\\n' for part in [command] + args))}")
                             
                             # Calculate the length of the processed command for offset tracking
                             command_bytes = f"*{len([command] + args)}\r\n"
