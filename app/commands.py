@@ -1160,3 +1160,149 @@ class UnsubscribeCommand(Command):
     
     def get_name(self) -> str:
         return "UNSUBSCRIBE"
+
+
+class ZaddCommand(Command):
+    """ZADD command implementation for Redis sorted sets."""
+    
+    def execute(self, args: List[str]) -> bytes:
+        if len(args) < 3:
+            return self.formatter.error("wrong number of arguments for 'zadd' command")
+        
+        key = args[0]
+        score_member_pairs = args[1:]
+        
+        # Validate that we have even number of arguments (score-member pairs)
+        if len(score_member_pairs) % 2 != 0:
+            return self.formatter.error("wrong number of arguments for 'zadd' command")
+        
+        try:
+            # Convert score strings to floats
+            converted_pairs = []
+            for i in range(0, len(score_member_pairs), 2):
+                score = float(score_member_pairs[i])
+                member = score_member_pairs[i + 1]
+                converted_pairs.extend([score, member])
+            
+            # Add members to sorted set
+            new_members = self.storage.zadd(key, *converted_pairs)
+            return self.formatter.integer(new_members)
+        except ValueError:
+            return self.formatter.error("value is not a valid float")
+    
+    def get_name(self) -> str:
+        return "ZADD"
+
+
+class ZrankCommand(Command):
+    """ZRANK command implementation for Redis sorted sets."""
+    
+    def execute(self, args: List[str]) -> bytes:
+        error = self.validate_args(args, 2)
+        if error:
+            return error
+        
+        key = args[0]
+        member = args[1]
+        
+        rank = self.storage.zrank(key, member)
+        if rank is None:
+            return self.formatter.bulk_string(None)
+        else:
+            return self.formatter.integer(rank)
+    
+    def get_name(self) -> str:
+        return "ZRANK"
+
+
+class ZrangeCommand(Command):
+    """ZRANGE command implementation for Redis sorted sets."""
+    
+    def execute(self, args: List[str]) -> bytes:
+        if len(args) < 3:
+            return self.formatter.error("wrong number of arguments for 'zrange' command")
+        
+        key = args[0]
+        try:
+            start = int(args[1])
+            stop = int(args[2])
+        except ValueError:
+            return self.formatter.error("value is not an integer or out of range")
+        
+        withscores = False
+        if len(args) > 3:
+            if args[3].upper() == "WITHSCORES":
+                withscores = True
+            else:
+                return self.formatter.error("syntax error")
+        
+        result = self.storage.zrange(key, start, stop, withscores)
+        if result is None:
+            return self.formatter.array([])
+        
+        # Format the result as RESP array
+        if withscores:
+            # Result contains alternating member and score strings
+            formatted_result = [self.formatter.bulk_string(item) for item in result]
+        else:
+            # Result contains only member strings
+            formatted_result = [self.formatter.bulk_string(item) for item in result]
+        
+        return self.formatter.array(formatted_result)
+    
+    def get_name(self) -> str:
+        return "ZRANGE"
+
+
+class ZcardCommand(Command):
+    """ZCARD command implementation for Redis sorted sets."""
+    
+    def execute(self, args: List[str]) -> bytes:
+        error = self.validate_args(args, 1)
+        if error:
+            return error
+        
+        key = args[0]
+        count = self.storage.zcard(key)
+        return self.formatter.integer(count)
+    
+    def get_name(self) -> str:
+        return "ZCARD"
+
+
+class ZscoreCommand(Command):
+    """ZSCORE command implementation for Redis sorted sets."""
+    
+    def execute(self, args: List[str]) -> bytes:
+        error = self.validate_args(args, 2)
+        if error:
+            return error
+        
+        key = args[0]
+        member = args[1]
+        
+        score = self.storage.zscore(key, member)
+        if score is None:
+            return self.formatter.bulk_string(None)
+        else:
+            return self.formatter.bulk_string(str(score))
+    
+    def get_name(self) -> str:
+        return "ZSCORE"
+
+
+class ZremCommand(Command):
+    """ZREM command implementation for Redis sorted sets."""
+    
+    def execute(self, args: List[str]) -> bytes:
+        if len(args) < 2:
+            return self.formatter.error("wrong number of arguments for 'zrem' command")
+        
+        key = args[0]
+        members = args[1:]
+        
+        removed_count = self.storage.zrem(key, *members)
+        return self.formatter.integer(removed_count)
+    
+    def get_name(self) -> str:
+        return "ZREM"

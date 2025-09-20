@@ -89,6 +89,37 @@ class StorageBackend(ABC):
     def type(self, key: str) -> Optional[str]:
         """Get the type of a key. Returns None if key doesn't exist."""
         pass
+    
+    # Sorted Set methods
+    @abstractmethod
+    def zadd(self, key: str, *score_member_pairs: Union[str, float]) -> int:
+        """Add members to a sorted set. Returns the number of new members added."""
+        pass
+    
+    @abstractmethod
+    def zrank(self, key: str, member: str) -> Optional[int]:
+        """Get the rank of a member in a sorted set. Returns None if key doesn't exist or member not found."""
+        pass
+    
+    @abstractmethod
+    def zrange(self, key: str, start: int, stop: int, withscores: bool = False) -> Optional[List]:
+        """Get a range of members from a sorted set. Returns None if key doesn't exist."""
+        pass
+    
+    @abstractmethod
+    def zcard(self, key: str) -> int:
+        """Get the number of members in a sorted set. Returns 0 if key doesn't exist."""
+        pass
+    
+    @abstractmethod
+    def zscore(self, key: str, member: str) -> Optional[float]:
+        """Get the score of a member in a sorted set. Returns None if key doesn't exist or member not found."""
+        pass
+    
+    @abstractmethod
+    def zrem(self, key: str, *members: str) -> int:
+        """Remove members from a sorted set. Returns the number of members removed."""
+        pass
 
 class InMemoryStorage(StorageBackend):
     """In-memory storage implementation with expiration support."""
@@ -520,3 +551,192 @@ class InMemoryStorage(StorageBackend):
         if key not in self._data:
             return None
         return self._data[key]["type"]
+    
+    def zadd(self, key: str, *score_member_pairs: Union[str, float]) -> int:
+        """Add members to a sorted set. Returns the number of new members added."""
+        if len(score_member_pairs) % 2 != 0:
+            raise ValueError("Score-member pairs must be even in number")
+        
+        if key not in self._data:
+            # Create new sorted set
+            self._data[key] = {
+                "value": {},  # member -> score mapping
+                "type": "zset",
+                "expires_at": None
+            }
+        
+        entry = self._data[key]
+        
+        # Check if the key has expired
+        if entry["expires_at"] is not None and time.time() > entry["expires_at"]:
+            # Key has expired, create new sorted set
+            self._data[key] = {
+                "value": {},
+                "type": "zset",
+                "expires_at": None
+            }
+            entry = self._data[key]
+        
+        # If key exists but is not a sorted set, convert it
+        if entry["type"] != "zset":
+            self._data[key] = {
+                "value": {},
+                "type": "zset",
+                "expires_at": entry["expires_at"]
+            }
+            entry = self._data[key]
+        
+        # Add members to sorted set
+        new_members = 0
+        for i in range(0, len(score_member_pairs), 2):
+            score = float(score_member_pairs[i])
+            member = str(score_member_pairs[i + 1])
+            
+            if member not in entry["value"]:
+                new_members += 1
+            
+            entry["value"][member] = score
+        
+        return new_members
+    
+    def zrank(self, key: str, member: str) -> Optional[int]:
+        """Get the rank of a member in a sorted set. Returns None if key doesn't exist or member not found."""
+        if key not in self._data:
+            return None
+        
+        entry = self._data[key]
+        
+        # Check if the key has expired
+        if entry["expires_at"] is not None and time.time() > entry["expires_at"]:
+            del self._data[key]
+            return None
+        
+        # Only work with sorted sets
+        if entry["type"] != "zset":
+            return None
+        
+        if member not in entry["value"]:
+            return None
+        
+        # Sort members by score, then by member name for ties
+        sorted_members = sorted(entry["value"].items(), key=lambda x: (x[1], x[0]))
+        
+        # Find the rank (0-based index)
+        for rank, (sorted_member, _) in enumerate(sorted_members):
+            if sorted_member == member:
+                return rank
+        
+        return None
+    
+    def zrange(self, key: str, start: int, stop: int, withscores: bool = False) -> Optional[List]:
+        """Get a range of members from a sorted set. Returns None if key doesn't exist."""
+        if key not in self._data:
+            return None
+        
+        entry = self._data[key]
+        
+        # Check if the key has expired
+        if entry["expires_at"] is not None and time.time() > entry["expires_at"]:
+            del self._data[key]
+            return None
+        
+        # Only work with sorted sets
+        if entry["type"] != "zset":
+            return None
+        
+        if not entry["value"]:
+            return []
+        
+        # Sort members by score, then by member name for ties
+        sorted_members = sorted(entry["value"].items(), key=lambda x: (x[1], x[0]))
+        
+        # Handle negative indices
+        total_members = len(sorted_members)
+        if start < 0:
+            start = max(0, total_members + start)
+        if stop < 0:
+            stop = max(0, total_members + stop)
+        
+        # Clamp indices to valid range
+        start = max(0, min(start, total_members - 1))
+        stop = max(0, min(stop, total_members - 1))
+        
+        # Early return for invalid ranges
+        if start > stop:
+            return []
+        
+        # Get the range
+        result = []
+        for i in range(start, stop + 1):
+            if i < len(sorted_members):
+                member, score = sorted_members[i]
+                if withscores:
+                    result.extend([member, str(score)])
+                else:
+                    result.append(member)
+        
+        return result
+    
+    def zcard(self, key: str) -> int:
+        """Get the number of members in a sorted set. Returns 0 if key doesn't exist."""
+        if key not in self._data:
+            return 0
+        
+        entry = self._data[key]
+        
+        # Check if the key has expired
+        if entry["expires_at"] is not None and time.time() > entry["expires_at"]:
+            del self._data[key]
+            return 0
+        
+        # Only work with sorted sets
+        if entry["type"] != "zset":
+            return 0
+        
+        return len(entry["value"])
+    
+    def zscore(self, key: str, member: str) -> Optional[float]:
+        """Get the score of a member in a sorted set. Returns None if key doesn't exist or member not found."""
+        if key not in self._data:
+            return None
+        
+        entry = self._data[key]
+        
+        # Check if the key has expired
+        if entry["expires_at"] is not None and time.time() > entry["expires_at"]:
+            del self._data[key]
+            return None
+        
+        # Only work with sorted sets
+        if entry["type"] != "zset":
+            return None
+        
+        return entry["value"].get(member)
+    
+    def zrem(self, key: str, *members: str) -> int:
+        """Remove members from a sorted set. Returns the number of members removed."""
+        if key not in self._data:
+            return 0
+        
+        entry = self._data[key]
+        
+        # Check if the key has expired
+        if entry["expires_at"] is not None and time.time() > entry["expires_at"]:
+            del self._data[key]
+            return 0
+        
+        # Only work with sorted sets
+        if entry["type"] != "zset":
+            return 0
+        
+        removed_count = 0
+        for member in members:
+            if member in entry["value"]:
+                del entry["value"][member]
+                removed_count += 1
+        
+        # If sorted set is empty, remove the key
+        if not entry["value"]:
+            del self._data[key]
+        
+        return removed_count

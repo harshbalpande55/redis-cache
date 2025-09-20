@@ -14,7 +14,8 @@ from app.rdb_parser import RDBParser
 from app.commands import (
     PingCommand, EchoCommand, SetCommand, GetCommand, 
     RpushCommand, DelCommand, ExistsCommand, LrangeCommand, LpushCommand,
-    LlenCommand, LpopCommand, BlpopCommand, XaddCommand, XrangeCommand, XreadCommand, TypeCommand, IncrCommand, InfoCommand, ReplconfCommand, PsyncCommand, WaitCommand, ConfigCommand, SaveCommand, BgsaveCommand, KeysCommand, SubscribeCommand, PublishCommand, UnsubscribeCommand
+    LlenCommand, LpopCommand, BlpopCommand, XaddCommand, XrangeCommand, XreadCommand, TypeCommand, IncrCommand, InfoCommand, ReplconfCommand, PsyncCommand, WaitCommand, ConfigCommand, SaveCommand, BgsaveCommand, KeysCommand, SubscribeCommand, PublishCommand, UnsubscribeCommand,
+    ZaddCommand, ZrankCommand, ZrangeCommand, ZcardCommand, ZscoreCommand, ZremCommand
 )
 
 
@@ -110,6 +111,12 @@ class RedisServer:
             SubscribeCommand(self.storage, self),
             PublishCommand(self.storage, self),
             UnsubscribeCommand(self.storage, self),
+            ZaddCommand(self.storage),
+            ZrankCommand(self.storage),
+            ZrangeCommand(self.storage),
+            ZcardCommand(self.storage),
+            ZscoreCommand(self.storage),
+            ZremCommand(self.storage),
             # MULTI and EXEC are now handled directly in handle_client
         ]
         
