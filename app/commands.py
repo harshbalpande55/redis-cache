@@ -903,8 +903,8 @@ class WaitCommand(Command):
             if ack_count >= numreplicas:
                 break
             
-            # Longer sleep to allow ACK processing
-            time.sleep(0.01)
+            # Wait longer to allow ACK processing to complete
+            time.sleep(0.05)
         
         return self.formatter.integer(min(ack_count, numreplicas))
     
