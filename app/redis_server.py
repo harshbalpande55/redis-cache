@@ -6,11 +6,11 @@ import asyncio
 import time
 from typing import Optional, List
 
-from storage import StorageBackend, InMemoryStorage
-from protocol import RedisProtocolParser, RedisResponseFormatter
-from command_registry import CommandRegistry
-from blocking_manager import BlockingManager
-from commands import (
+from .storage import StorageBackend, InMemoryStorage
+from .protocol import RedisProtocolParser, RedisResponseFormatter
+from .command_registry import CommandRegistry
+from .blocking_manager import BlockingManager
+from .commands import (
     PingCommand, EchoCommand, SetCommand, GetCommand, 
     RpushCommand, DelCommand, ExistsCommand, LrangeCommand, LpushCommand,
     LlenCommand, LpopCommand, BlpopCommand, XaddCommand, XrangeCommand, XreadCommand, TypeCommand, IncrCommand, InfoCommand, ReplconfCommand, PsyncCommand
@@ -404,18 +404,15 @@ class RedisServer:
                             # Mark this client as a replica for the entire session
                             self.client_transactions[client_id]['is_replica'] = True
                             
-                            # Send the response and then start the replica connection task
+                            # Send the response
                             if response is not None:
                                 writer.write(response)
                                 await writer.drain()
                             
-                            # Start replication loop for this replica connection
-                            print(f"Starting replica connection task for client {client_id}")
-                            asyncio.create_task(self._handle_replica_connection(reader, writer, client_id))
-                            
-                            # Exit the handle_client loop for this connection
-                            # The replica connection will be handled by the separate task
-                            return
+                            # Continue the loop to handle replica commands directly
+                            # instead of starting a separate task
+                            print(f"PSYNC completed for client {client_id}, continuing as replica")
+                            continue
                         elif command == "REPLCONF" and len(args) > 0 and args[0].lower() == "ack":
                             # Handle REPLCONF ACK command and update replica offset
                             response = self.command_registry.execute_command(command, args)
@@ -552,6 +549,7 @@ class RedisServer:
             replica_offset = 0  # Track our replication offset
             
             while True:
+                print(f"Replica {client_id} waiting for data from master...")
                 # Read data from master
                 data = await reader.read(1024)
                 if not data:
