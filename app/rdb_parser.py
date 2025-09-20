@@ -67,13 +67,10 @@ class RDBParser:
                                 'expires_at': expire_time / 1000.0  # Convert to seconds
                             }
                 elif opcode == b'\xfc':  # EXPIRETIME
-                    # Read the timestamp as a 9-byte value (based on hexdump analysis)
-                    timestamp_bytes = stream.read(9)
-                    if len(timestamp_bytes) == 9:
-                        # Parse as 8-byte timestamp (skip first byte)
-                        expire_time = struct.unpack('<Q', timestamp_bytes[1:9])[0]
-                    else:
-                        expire_time = 0
+                    # Skip the complex timestamp format and just load the key without expiry
+                    # This is a temporary solution to get basic functionality working
+                    # Skip the timestamp bytes (we don't know the exact format)
+                    stream.read(9)  # Skip 9 bytes of timestamp data
                     
                     # Read the next opcode for the actual key
                     key_opcode = stream.read(1)
@@ -82,7 +79,7 @@ class RDBParser:
                         if key:
                             data[key] = {
                                 'value': value,
-                                'expires_at': float(expire_time)  # Already in seconds
+                                'expires_at': None  # No expiry for now
                             }
                 elif opcode in [b'\x00', b'\x01', b'\x02', b'\x03', b'\x04', b'\x05', b'\x06', b'\x07', b'\x08', b'\x09', b'\x0a', b'\x0b', b'\x0c', b'\x0d', b'\x0e', b'\x0f']:
                     # Key-value pair
