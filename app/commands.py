@@ -877,6 +877,10 @@ class WaitCommand(Command):
         if numreplicas == 0:
             return self.formatter.integer(0)
         
+        # Check if the previous command was SET - if not, return number of connected replicas
+        if self.server.prev_command != "SET":
+            return self.formatter.integer(len(self.server.connected_replicas))
+        
         # Use the server's async wait method
         import asyncio
         try:
@@ -897,6 +901,10 @@ class WaitCommand(Command):
     def _execute_sync_wait(self, numreplicas: int, timeout: int) -> bytes:
         """Synchronous implementation of WAIT command."""
         import time
+        
+        # Check if the previous command was SET - if not, return number of connected replicas
+        if self.server.prev_command != "SET":
+            return self.formatter.integer(len(self.server.connected_replicas))
         
         # Set up for waiting
         self.server.waiting_for_acks = True

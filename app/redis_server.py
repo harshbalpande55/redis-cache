@@ -858,6 +858,10 @@ class RedisServer:
         """Async method to wait for replica acknowledgments."""
         import time
         
+        # Check if the previous command was SET - if not, return number of connected replicas
+        if self.prev_command != "SET":
+            return len(self.connected_replicas)
+        
         # Set up for waiting
         self.waiting_for_acks = True
         self.replica_ack_counter = 0
