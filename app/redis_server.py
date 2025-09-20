@@ -150,7 +150,9 @@ class RedisServer:
     
     def increment_replication_offset(self, command_bytes: int) -> None:
         """Increment the replication offset by the number of bytes in the command."""
+        old_offset = self.master_repl_offset
         self.master_repl_offset += command_bytes
+        print(f"Master replication offset: {old_offset} -> {self.master_repl_offset} (+{command_bytes})")
     
     def add_to_replication_backlog(self, command_bytes: bytes) -> None:
         """Add a command to the replication backlog."""
