@@ -4,8 +4,8 @@ Uses Registry pattern for extensible command handling.
 """
 from typing import Dict, Optional
 
-from commands import Command
-from protocol import RedisResponseFormatter
+from app.commands import Command
+from app.protocol import RedisResponseFormatter
 
 
 class CommandRegistry:
