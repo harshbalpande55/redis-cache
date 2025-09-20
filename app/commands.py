@@ -877,8 +877,10 @@ class WaitCommand(Command):
         if numreplicas == 0:
             return self.formatter.integer(0)
         
-        # Get the current replication offset at the time WAIT was called
-        current_offset = self.server.master_repl_offset
+        # Check if previous command was a data-modifying command
+        if self.server.prev_command != "SET":
+            # If previous command wasn't SET, just return the number of connected replicas
+            return self.formatter.integer(len(self.server.connected_replicas))
         
         # Send REPLCONF GETACK to all replicas
         for reader, writer, offset in self.server.connected_replicas:
@@ -890,24 +892,12 @@ class WaitCommand(Command):
             except Exception as e:
                 print(f"Failed to send GETACK to replica: {e}")
         
-        # Wait for acknowledgments with timeout
-        start_time = time.time()
-        ack_count = 0
+        # Wait for the timeout period
+        time.sleep(timeout / 1000.0)
         
-        # Wait for ACK processing to complete
-        while (time.time() - start_time) * 1000 < timeout:
-            # Count replicas that have acknowledged up to the current offset
-            ack_count = 0
-            for reader, writer, offset in self.server.connected_replicas:
-                if offset >= current_offset:
-                    ack_count += 1
-            
-            # Check if we have enough acknowledgments
-            if ack_count >= numreplicas:
-                break
-            
-            # Wait longer for ACK processing to complete
-            time.sleep(1.0)
+        # Get the ACK count and reset it
+        ack_count = self.server.replica_ack_counter
+        self.server.replica_ack_counter = 0
         
         return self.formatter.integer(ack_count)
     

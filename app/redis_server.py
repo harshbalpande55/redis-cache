@@ -41,6 +41,11 @@ class RedisServer:
         # Replica offset tracking - track per client
         self.replica_offsets = {}  # client_id -> offset
         
+        # WAIT command tracking
+        self.prev_command = None  # Track the previous command
+        self.replica_ack_counter = 0  # Global ACK counter for WAIT
+        self.replica_ack_lock = asyncio.Lock()  # Lock for ACK counter
+        
         # Replica configuration
         self.is_replica = False
         self.master_host = None
@@ -452,6 +457,8 @@ class RedisServer:
                                 try:
                                     replica_offset = int(args[1])
                                     self.update_replica_offset(writer, replica_offset)
+                                    # Increment ACK counter for WAIT command
+                                    self.replica_ack_counter += 1
                                 except ValueError:
                                     pass  # Invalid offset, ignore
                         elif command == "REPLCONF" and len(args) > 0 and args[0].lower() == "getack":
@@ -501,6 +508,9 @@ class RedisServer:
                                     if command not in ["PING", "REPLCONF", "PSYNC", "INFO", "GET", "LRANGE", "LLEN", "TYPE", "EXISTS"]:
                                         command_bytes = len(data)
                                         self.increment_replication_offset(command_bytes)
+                                    
+                                    # Track the previous command for WAIT
+                                    self.prev_command = command
                                 else:
                                     # This is a replica receiving commands from master
                                     # Don't send response back to master, just process the command silently
