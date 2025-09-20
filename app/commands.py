@@ -6,8 +6,8 @@ from abc import ABC, abstractmethod
 from typing import List, Optional
 import time
 
-from .protocol import RedisResponseFormatter
-from .storage import StorageBackend
+from protocol import RedisResponseFormatter
+from storage import StorageBackend
 
 
 class Command(ABC):

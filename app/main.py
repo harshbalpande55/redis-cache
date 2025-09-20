@@ -6,7 +6,7 @@ import asyncio
 import argparse
 import sys
 
-from .redis_server import RedisServer
+from redis_server import RedisServer
 
 
 async def main():
