@@ -892,6 +892,7 @@ class WaitCommand(Command):
         
         # Wait for acknowledgments with timeout
         start_time = time.time()
+        ack_count = 0
         while (time.time() - start_time) * 1000 < timeout:
             # Count replicas that have acknowledged up to the current offset
             ack_count = 0
@@ -899,13 +900,16 @@ class WaitCommand(Command):
                 if offset >= current_offset:
                     ack_count += 1
             
+            print(f"WAIT: current_offset={current_offset}, ack_count={ack_count}, replica_offsets={[offset for _, _, offset in self.server.connected_replicas]}")
+            
             # Check if we have enough acknowledgments
             if ack_count >= numreplicas:
                 break
             
             # Wait longer to allow ACK processing to complete
-            time.sleep(0.05)
+            time.sleep(0.1)
         
+        print(f"WAIT: Final result - ack_count={ack_count}, numreplicas={numreplicas}, returning={min(ack_count, numreplicas)}")
         return self.formatter.integer(min(ack_count, numreplicas))
     
     def get_name(self) -> str:
