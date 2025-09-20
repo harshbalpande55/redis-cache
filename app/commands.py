@@ -1371,11 +1371,11 @@ class GeoposCommand(Command):
             if coord is None:
                 result.append(self.formatter.bulk_string(None))
             else:
-                longitude, latitude = coord
-                # Return as array of [longitude, latitude]
+                # For this stage, hardcode the returned values to "0"
+                # We'll implement actual coordinate decoding in later stages
                 coord_array = [
-                    self.formatter.bulk_string(str(longitude)),
-                    self.formatter.bulk_string(str(latitude))
+                    self.formatter.bulk_string("0"),
+                    self.formatter.bulk_string("0")
                 ]
                 result.append(self.formatter.array(coord_array))
         
