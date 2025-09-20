@@ -969,9 +969,15 @@ class ConfigCommand(Command):
             
             # Handle RDB-related config
             if key == "dir":
-                return self.formatter.array([b"dir", b"/tmp"])
+                if self.server and 'dir' in self.server.config:
+                    return self.formatter.array([b"dir", self.server.config['dir'].encode()])
+                else:
+                    return self.formatter.array([b"dir", b"."])
             elif key == "dbfilename":
-                return self.formatter.array([b"dbfilename", b"dump.rdb"])
+                if self.server and 'dbfilename' in self.server.config:
+                    return self.formatter.array([b"dbfilename", self.server.config['dbfilename'].encode()])
+                else:
+                    return self.formatter.array([b"dbfilename", b"dump.rdb"])
             elif key == "save":
                 return self.formatter.array([b"save", b"900 1 300 10 60 10000"])
             else:

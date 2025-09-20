@@ -63,6 +63,12 @@ class RedisServer:
         # Replication backlog for partial resynchronization
         self.replication_backlog = []  # List of (offset, command_bytes) tuples
         self.replication_backlog_size = 1000000  # 1MB backlog size
+        
+        # Configuration parameters
+        self.config = {
+            'dir': '.',
+            'dbfilename': 'dump.rdb'
+        }
     
     def _register_commands(self) -> None:
         """Register all available commands."""
@@ -102,6 +108,11 @@ class RedisServer:
         self.is_replica = True
         self.master_host = master_host
         self.master_port = master_port
+    
+    def set_config(self, dir_path: str, dbfilename: str) -> None:
+        """Set configuration parameters for RDB persistence."""
+        self.config['dir'] = dir_path
+        self.config['dbfilename'] = dbfilename
     
     def add_replica_connection(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         """Add a replica connection for command propagation."""

@@ -16,14 +16,17 @@ async def main():
     parser.add_argument('--port', type=int, default=6379, help='Port to listen on (default: 6379)')
     parser.add_argument('--replicaof', nargs='*', metavar=('MASTER_HOST', 'MASTER_PORT'), 
                        help='Replicate from master at MASTER_HOST:MASTER_PORT')
+    parser.add_argument('--dir', type=str, default='.', help='Directory where RDB file is stored (default: current directory)')
+    parser.add_argument('--dbfilename', type=str, default='dump.rdb', help='Name of the RDB file (default: dump.rdb)')
     
     args = parser.parse_args()
     
     # You can use print statements as follows for debugging, they'll be visible when running tests.
     # print("Logs from your program will appear here!")
 
-    # Create and start the Redis server
+    # Create and start the Redis server with configuration
     redis_server = RedisServer()
+    redis_server.set_config(args.dir, args.dbfilename)
     
     # Set replica configuration if --replicaof is provided
     if args.replicaof:
