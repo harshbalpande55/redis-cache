@@ -632,7 +632,7 @@ class RedisServer:
                             if self.client_transactions[client_id]['in_transaction']:
                                 # Check if client is in subscribed mode and command is not allowed
                                 if self.is_client_subscribed(client_id) and not self.is_command_allowed_in_subscribed_mode(command):
-                                    response = self.response_formatter.error(f"Can't execute '{command.lower()}': only (P|S)SUBSCRIBE / (P|S)UNSUBSCRIBE / PING / QUIT / RESET are allowed in this context")
+                                    response = self.response_formatter.error(f"ERR Can't execute '{command.lower()}': only (P|S)SUBSCRIBE / (P|S)UNSUBSCRIBE / PING / QUIT / RESET are allowed in this context")
                                 else:
                                     # Queue command for later execution
                                     self.client_transactions[client_id]['commands'].append((command, args))
@@ -652,7 +652,7 @@ class RedisServer:
                             else:
                                 # Check if client is in subscribed mode and command is not allowed
                                 if self.is_client_subscribed(client_id) and not self.is_command_allowed_in_subscribed_mode(command):
-                                    response = self.response_formatter.error(f"Can't execute '{command.lower()}': only (P|S)SUBSCRIBE / (P|S)UNSUBSCRIBE / PING / QUIT / RESET are allowed in this context")
+                                    response = self.response_formatter.error(f"ERR Can't execute '{command.lower()}': only (P|S)SUBSCRIBE / (P|S)UNSUBSCRIBE / PING / QUIT / RESET are allowed in this context")
                                 else:
                                     # Handle WAIT command specially since it needs async execution
                                     if command == "WAIT":
