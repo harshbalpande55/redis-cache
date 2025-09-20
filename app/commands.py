@@ -894,7 +894,7 @@ class WaitCommand(Command):
         start_time = time.time()
         ack_count = 0
         
-        # Give more time for ACK processing by checking more frequently with shorter sleeps
+        # Wait for ACK processing to complete
         while (time.time() - start_time) * 1000 < timeout:
             # Count replicas that have acknowledged up to the current offset
             ack_count = 0
@@ -906,10 +906,10 @@ class WaitCommand(Command):
             if ack_count >= numreplicas:
                 break
             
-            # Wait longer to ensure ACK processing completes
-            time.sleep(0.1)
+            # Wait for ACK processing to complete
+            time.sleep(0.05)
         
-        return self.formatter.integer(min(ack_count, numreplicas))
+        return self.formatter.integer(ack_count)
     
     def get_name(self) -> str:
         return "WAIT"
