@@ -13,7 +13,7 @@ from app.blocking_manager import BlockingManager
 from app.commands import (
     PingCommand, EchoCommand, SetCommand, GetCommand, 
     RpushCommand, DelCommand, ExistsCommand, LrangeCommand, LpushCommand,
-    LlenCommand, LpopCommand, BlpopCommand, XaddCommand, XrangeCommand, XreadCommand, TypeCommand, IncrCommand, InfoCommand, ReplconfCommand, PsyncCommand
+    LlenCommand, LpopCommand, BlpopCommand, XaddCommand, XrangeCommand, XreadCommand, TypeCommand, IncrCommand, InfoCommand, ReplconfCommand, PsyncCommand, WaitCommand, ConfigCommand, SaveCommand, BgsaveCommand
 )
 
 
@@ -80,6 +80,10 @@ class RedisServer:
             InfoCommand(self.storage, self),
             ReplconfCommand(self.storage, self),
             PsyncCommand(self.storage, self),
+            WaitCommand(self.storage, self),
+            ConfigCommand(self.storage, self),
+            SaveCommand(self.storage, self),
+            BgsaveCommand(self.storage, self),
             # MULTI and EXEC are now handled directly in handle_client
         ]
         

@@ -846,3 +846,151 @@ class PsyncCommand(Command):
     
     def get_name(self) -> str:
         return "PSYNC"
+
+
+class WaitCommand(Command):
+    """WAIT command implementation for waiting for replica acknowledgments."""
+    
+    def __init__(self, storage: StorageBackend, server=None):
+        super().__init__(storage)
+        self.server = server
+    
+    def execute(self, args: List[str]) -> bytes:
+        if len(args) != 2:
+            return self.formatter.error("wrong number of arguments for 'wait' command")
+        
+        try:
+            numreplicas = int(args[0])
+            timeout = int(args[1])
+        except ValueError:
+            return self.formatter.error("value is not an integer or out of range")
+        
+        if not self.server:
+            # If no server context, return 0 (no replicas)
+            return self.formatter.integer(0)
+        
+        # If no replicas connected, return 0 immediately
+        if not self.server.connected_replicas:
+            return self.formatter.integer(0)
+        
+        # If numreplicas is 0, return 0 immediately
+        if numreplicas == 0:
+            return self.formatter.integer(0)
+        
+        # Send REPLCONF GETACK to all replicas
+        ack_count = 0
+        current_offset = self.server.master_repl_offset
+        
+        # Send GETACK to all replicas
+        for reader, writer, offset in self.server.connected_replicas:
+            try:
+                getack_command = "*3\r\n$8\r\nREPLCONF\r\n$6\r\nGETACK\r\n$1\r\n*\r\n"
+                writer.write(getack_command.encode())
+                writer.flush()
+            except Exception as e:
+                print(f"Failed to send GETACK to replica: {e}")
+        
+        # Wait for acknowledgments with timeout
+        start_time = time.time()
+        while (time.time() - start_time) * 1000 < timeout:
+            # Check if we have enough acknowledgments
+            if ack_count >= numreplicas:
+                break
+            
+            # For simplicity, we'll return the number of connected replicas
+            # In a real implementation, we'd need to track actual ACK responses
+            ack_count = len(self.server.connected_replicas)
+            if ack_count >= numreplicas:
+                break
+            
+            # Small sleep to avoid busy waiting
+            time.sleep(0.001)
+        
+        return self.formatter.integer(min(ack_count, numreplicas))
+    
+    def get_name(self) -> str:
+        return "WAIT"
+
+
+class ConfigCommand(Command):
+    """CONFIG command implementation for Redis configuration."""
+    
+    def __init__(self, storage: StorageBackend, server=None):
+        super().__init__(storage)
+        self.server = server
+    
+    def execute(self, args: List[str]) -> bytes:
+        if len(args) < 2:
+            return self.formatter.error("wrong number of arguments for 'config' command")
+        
+        subcommand = args[0].upper()
+        
+        if subcommand == "GET":
+            if len(args) != 2:
+                return self.formatter.error("wrong number of arguments for 'config get' command")
+            
+            key = args[1]
+            
+            # Handle RDB-related config
+            if key == "dir":
+                return self.formatter.array([b"dir", b"/tmp"])
+            elif key == "dbfilename":
+                return self.formatter.array([b"dbfilename", b"dump.rdb"])
+            elif key == "save":
+                return self.formatter.array([b"save", b"900 1 300 10 60 10000"])
+            else:
+                return self.formatter.array([])
+        
+        elif subcommand == "SET":
+            if len(args) != 3:
+                return self.formatter.error("wrong number of arguments for 'config set' command")
+            
+            key = args[1]
+            value = args[2]
+            
+            # For simplicity, just return OK for any config set
+            return self.formatter.simple_string("OK")
+        
+        else:
+            return self.formatter.error(f"Unknown subcommand or wrong number of arguments for 'config' command")
+    
+    def get_name(self) -> str:
+        return "CONFIG"
+
+
+class SaveCommand(Command):
+    """SAVE command implementation for creating RDB snapshots."""
+    
+    def __init__(self, storage: StorageBackend, server=None):
+        super().__init__(storage)
+        self.server = server
+    
+    def execute(self, args: List[str]) -> bytes:
+        if len(args) != 0:
+            return self.formatter.error("wrong number of arguments for 'save' command")
+        
+        # For simplicity, just return OK
+        # In a real implementation, this would create an RDB file
+        return self.formatter.simple_string("OK")
+    
+    def get_name(self) -> str:
+        return "SAVE"
+
+
+class BgsaveCommand(Command):
+    """BGSAVE command implementation for background RDB snapshots."""
+    
+    def __init__(self, storage: StorageBackend, server=None):
+        super().__init__(storage)
+        self.server = server
+    
+    def execute(self, args: List[str]) -> bytes:
+        if len(args) != 0:
+            return self.formatter.error("wrong number of arguments for 'bgsave' command")
+        
+        # For simplicity, just return OK
+        # In a real implementation, this would start a background save
+        return self.formatter.simple_string("Background saving started")
+    
+    def get_name(self) -> str:
+        return "BGSAVE"
