@@ -331,7 +331,8 @@ class RDBParser:
                 # Other encoded values
                 return first_byte & 0x3f
         else:
-            # Encoded length
+            # Encoded length - this is the issue!
+            # The length is encoded in the lower 6 bits
             return first_byte & 0x3f
     
     def create_empty_rdb(self) -> bytes:
