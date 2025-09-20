@@ -438,7 +438,8 @@ class RedisServer:
                             
                             # Continue processing commands in replica mode
                             print(f"PSYNC completed for client {client_id}, continuing in replica mode")
-                            # Don't use continue here - let the normal flow handle replica commands
+                            # Set response to None to avoid sending it again
+                            response = None
                         elif command == "REPLCONF" and len(args) > 0 and args[0].lower() == "ack":
                             # Handle REPLCONF ACK command and update replica offset
                             response = self.command_registry.execute_command(command, args)
