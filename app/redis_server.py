@@ -410,6 +410,7 @@ class RedisServer:
                                 await writer.drain()
                             
                             # Start replication loop for this replica connection
+                            print(f"Starting replica connection task for client {client_id}")
                             asyncio.create_task(self._handle_replica_connection(reader, writer, client_id))
                             
                             # Exit the handle_client loop for this connection
@@ -543,6 +544,7 @@ class RedisServer:
     
     async def _handle_replica_connection(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter, client_id: int) -> None:
         """Handle a replica connection by continuously reading and processing commands from the master."""
+        print(f"Replica connection task started for client {client_id}")
         try:
             buffer = b""
             last_ack_time = time.time()
