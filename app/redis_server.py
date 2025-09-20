@@ -629,7 +629,7 @@ class RedisServer:
     
     async def _handle_replica_connection(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter, client_id: int) -> None:
         """Handle a replica connection by continuously reading and processing commands from the master."""
-        print(f"Replica connection task started for client {client_id}")
+        print(f"Replica connection task started for client {client_id}, writer: {id(writer)}")
         try:
             buffer = b""
             last_ack_time = time.time()
@@ -869,14 +869,14 @@ class RedisServer:
         
         # Send REPLCONF GETACK to all replicas
         print(f"WAIT: Sending GETACK to {len(self.connected_replicas)} replicas")
-        for reader, writer, offset in self.connected_replicas:
+        for i, (reader, writer, offset) in enumerate(self.connected_replicas):
             try:
                 getack_command = "*3\r\n$8\r\nREPLCONF\r\n$6\r\nGETACK\r\n$1\r\n*\r\n"
                 writer.write(getack_command.encode())
                 await writer.drain()
-                print(f"WAIT: Sent GETACK to replica with offset {offset}")
+                print(f"WAIT: Sent GETACK to replica {i} with offset {offset}, writer: {id(writer)}")
             except Exception as e:
-                print(f"Failed to send GETACK to replica: {e}")
+                print(f"Failed to send GETACK to replica {i}: {e}")
         
         # Wait for ACKs with timeout
         start_time = time.time()
