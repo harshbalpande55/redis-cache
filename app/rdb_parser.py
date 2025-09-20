@@ -75,15 +75,15 @@ class RDBParser:
                     else:
                         expire_time = 0
                     
-                    # Read the next opcode for the actual key
-                    key_opcode = stream.read(1)
-                    if key_opcode:
-                        key, value = self._parse_key_value(stream, key_opcode)
-                        if key:
-                            data[key] = {
-                                'value': value,
-                                'expires_at': float(expire_time)  # Unix timestamp in seconds
-                            }
+                    # The key-value pair follows directly after the timestamp (no opcode)
+                    # Read key and value directly
+                    key = self._read_string(stream)
+                    value = self._read_string(stream)
+                    if key:
+                        data[key] = {
+                            'value': value,
+                            'expires_at': float(expire_time)  # Unix timestamp in seconds
+                        }
                 elif opcode in [b'\x00', b'\x01', b'\x02', b'\x03', b'\x04', b'\x05', b'\x06', b'\x07', b'\x08', b'\x09', b'\x0a', b'\x0b', b'\x0c', b'\x0d', b'\x0e', b'\x0f']:
                     # Key-value pair
                     key, value = self._parse_key_value(stream, opcode)
