@@ -267,7 +267,33 @@ class RDBParser:
     
     def _read_string(self, stream: BytesIO) -> str:
         """Read a string from the RDB stream."""
-        length = self._read_length(stream)
+        first_byte = stream.read(1)
+        if not first_byte:
+            return ""
+        
+        first_byte_val = first_byte[0]
+        
+        # Check if this is an encoded string
+        if first_byte_val >= 0xc0:
+            # Handle encoded integers as strings
+            if first_byte_val == 0xc0:  # 8-bit integer
+                value = struct.unpack('b', stream.read(1))[0]
+                return str(value)
+            elif first_byte_val == 0xc1:  # 16-bit integer
+                value = struct.unpack('<h', stream.read(2))[0]
+                return str(value)
+            elif first_byte_val == 0xc2:  # 32-bit integer
+                value = struct.unpack('<i', stream.read(4))[0]
+                return str(value)
+            else:
+                # Other encoded values - treat as length
+                stream.seek(-1, 1)  # Put back the byte
+                length = self._read_length(stream)
+        else:
+            # Put back the byte and read length normally
+            stream.seek(-1, 1)
+            length = self._read_length(stream)
+        
         if length == 0:
             return ""
         
@@ -289,6 +315,17 @@ class RDBParser:
         elif first_byte == 0x81:  # 64-bit length
             length_bytes = stream.read(8)
             return struct.unpack('<Q', length_bytes)[0]
+        elif first_byte >= 0xc0:  # Special encoded values
+            # Handle encoded integers
+            if first_byte == 0xc0:  # 8-bit integer
+                return struct.unpack('b', stream.read(1))[0]
+            elif first_byte == 0xc1:  # 16-bit integer
+                return struct.unpack('<h', stream.read(2))[0]
+            elif first_byte == 0xc2:  # 32-bit integer
+                return struct.unpack('<i', stream.read(4))[0]
+            else:
+                # Other encoded values
+                return first_byte & 0x3f
         else:
             # Encoded length
             return first_byte & 0x3f
