@@ -150,9 +150,7 @@ class RedisServer:
     
     def increment_replication_offset(self, command_bytes: int) -> None:
         """Increment the replication offset by the number of bytes in the command."""
-        old_offset = self.master_repl_offset
         self.master_repl_offset += command_bytes
-        print(f"Master replication offset: {old_offset} -> {self.master_repl_offset} (+{command_bytes})")
     
     def add_to_replication_backlog(self, command_bytes: bytes) -> None:
         """Add a command to the replication backlog."""
@@ -501,7 +499,7 @@ class RedisServer:
                                     
                                     # Increment replication offset only for data-modifying commands
                                     if command not in ["PING", "REPLCONF", "PSYNC", "INFO", "GET", "LRANGE", "LLEN", "TYPE", "EXISTS"]:
-                                        command_bytes = self.calculate_command_bytes(command, args)
+                                        command_bytes = len(data)
                                         self.increment_replication_offset(command_bytes)
                                 else:
                                     # This is a replica receiving commands from master
