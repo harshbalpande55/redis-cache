@@ -668,6 +668,18 @@ class RedisServer:
                                 
                                 # Now update offset to include this REPLCONF command
                                 replica_offset += len(command_bytes.encode())
+                            elif command == "REPLCONF" and args and args[0] == "ACK":
+                                # Handle ACK response from replica to master
+                                print(f"Replica {client_id} received ACK command: {command} {' '.join(args)}")
+                                
+                                # Update the master's ACK counter if we're waiting for ACKs
+                                if self.waiting_for_acks and writer not in self.ack_received_from:
+                                    self.replica_ack_counter += 1
+                                    self.ack_received_from.add(writer)
+                                    print(f"ACK received from replica {client_id}: ack_counter={self.replica_ack_counter}")
+                                
+                                # Update replica offset with the command length
+                                replica_offset += len(command_bytes.encode())
                             else:
                                 # Execute other commands silently (no response)
                                 self.command_registry.execute_command(command, args)
