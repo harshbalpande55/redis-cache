@@ -67,26 +67,9 @@ class RDBParser:
                                 'expires_at': expire_time / 1000.0  # Convert to seconds
                             }
                 elif opcode == b'\xfc':  # EXPIRETIME
-                    # Skip the timestamp for now - just read until we find the next opcode
-                    # The timestamp format is complex and varies
-                    # For now, set a future expiry time so keys are not expired
-                    expire_time = 9999999999  # Far in the future
-                    while True:
-                        next_byte = stream.read(1)
-                        if not next_byte:
-                            break
-                        # Look for the next opcode (should be 0x00 for string)
-                        if next_byte == b'\x00':
-                            break
-                        # Skip this byte and continue
-                    
-                    # Parse the key-value pair
-                    key, value = self._parse_key_value(stream, b'\x00')
-                    if key:
-                        data[key] = {
-                            'value': value,
-                            'expires_at': float(expire_time)  # Already in seconds
-                        }
+                    # Skip EXPIRETIME opcodes entirely for now
+                    # Just skip to the next opcode and parse the key-value pair
+                    continue
                 elif opcode in [b'\x00', b'\x01', b'\x02', b'\x03', b'\x04', b'\x05', b'\x06', b'\x07', b'\x08', b'\x09', b'\x0a', b'\x0b', b'\x0c', b'\x0d', b'\x0e', b'\x0f']:
                     # Key-value pair
                     key, value = self._parse_key_value(stream, opcode)
