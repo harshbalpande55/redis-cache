@@ -38,6 +38,9 @@ class RedisServer:
         # Transaction state management - track per client
         self.client_transactions = {}  # client_id -> {'in_transaction': bool, 'commands': list}
         
+        # Replica offset tracking - track per client
+        self.replica_offsets = {}  # client_id -> offset
+        
         # Replica configuration
         self.is_replica = False
         self.master_host = None
@@ -155,6 +158,14 @@ class RedisServer:
         while current_size > self.replication_backlog_size and self.replication_backlog:
             self.replication_backlog.pop(0)
             current_size = sum(len(cmd) for _, cmd in self.replication_backlog)
+    
+    def calculate_command_bytes(self, command: str, args: List[str]) -> int:
+        """Calculate the number of bytes for a command in RESP format."""
+        command_parts = [command] + args
+        command_bytes = f"*{len(command_parts)}\r\n"
+        for part in command_parts:
+            command_bytes += f"${len(part)}\r\n{part}\r\n"
+        return len(command_bytes.encode())
     
     async def send_backlog_to_replica(self, writer: asyncio.StreamWriter, from_offset: int) -> None:
         """Send backlog commands to a replica starting from the specified offset."""
@@ -314,6 +325,10 @@ class RedisServer:
         if client_id not in self.client_transactions:
             self.client_transactions[client_id] = {'in_transaction': False, 'commands': []}
         
+        # Initialize replica offset tracking
+        if client_id not in self.replica_offsets:
+            self.replica_offsets[client_id] = 0
+        
         # Track if this is a replica connection
         is_replica_connection = False
         
@@ -370,6 +385,10 @@ class RedisServer:
                                 else:
                                     # Replica EXEC commands don't send responses
                                     response = None
+                                    
+                                    # Update replica offset for EXEC command
+                                    command_bytes = self.calculate_command_bytes(command, args)
+                                    self.replica_offsets[client_id] += command_bytes
                             else:
                                 response = self.response_formatter.error("ERR EXEC without MULTI")
                         elif command == "DISCARD":
@@ -386,6 +405,10 @@ class RedisServer:
                                 else:
                                     # Replica DISCARD commands don't send responses
                                     response = None
+                                    
+                                    # Update replica offset for DISCARD command
+                                    command_bytes = self.calculate_command_bytes(command, args)
+                                    self.replica_offsets[client_id] += command_bytes
                             else:
                                 # Check if this is a replica connection
                                 is_replica = is_replica_connection or self.client_transactions[client_id].get('is_replica', False)
@@ -395,6 +418,10 @@ class RedisServer:
                                 else:
                                     # Replica DISCARD commands don't send responses
                                     response = None
+                                    
+                                    # Update replica offset for DISCARD command
+                                    command_bytes = self.calculate_command_bytes(command, args)
+                                    self.replica_offsets[client_id] += command_bytes
                         elif command == "PSYNC":
                             # Handle PSYNC command and mark this as a replica connection
                             response = self.command_registry.execute_command(command, args)
@@ -422,6 +449,18 @@ class RedisServer:
                                     self.update_replica_offset(writer, replica_offset)
                                 except ValueError:
                                     pass  # Invalid offset, ignore
+                        elif command == "REPLCONF" and len(args) > 0 and args[0].lower() == "getack":
+                            # Handle REPLCONF GETACK command - return current offset before processing
+                            current_offset = self.replica_offsets[client_id]
+                            ack_response = f"*3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n${len(str(current_offset))}\r\n{current_offset}\r\n"
+                            writer.write(ack_response.encode())
+                            await writer.drain()
+                            print(f"Replica {client_id} sent ACK response with offset {current_offset}")
+                            
+                            # Now update offset to include this REPLCONF command
+                            command_bytes = self.calculate_command_bytes(command, args)
+                            self.replica_offsets[client_id] += command_bytes
+                            response = None  # No response needed for GETACK
                         else:
                             # Regular command execution
                             if self.client_transactions[client_id]['in_transaction']:
@@ -436,13 +475,16 @@ class RedisServer:
                                 else:
                                     # Replica commands in transactions don't send responses
                                     response = None
+                                    
+                                    # Update replica offset for queued commands
+                                    command_bytes = self.calculate_command_bytes(command, args)
+                                    self.replica_offsets[client_id] += command_bytes
                             else:
                                 # Execute command immediately
                                 response = self.command_registry.execute_command(command, args)
                                 
                                 # Check if this is a replica connection
                                 is_replica = is_replica_connection or self.client_transactions[client_id].get('is_replica', False)
-                                print(f"Client {client_id}: command={command}, is_replica={is_replica}, is_replica_connection={is_replica_connection}")
                                 
                                 if not is_replica:
                                     # This is a regular client, propagate commands to replicas
@@ -458,6 +500,10 @@ class RedisServer:
                                     # This is a replica receiving commands from master
                                     # Don't send response back to master, just process the command silently
                                     response = None
+                                    
+                                    # Update replica offset for all commands (including PING and REPLCONF)
+                                    command_bytes = self.calculate_command_bytes(command, args)
+                                    self.replica_offsets[client_id] += command_bytes
                         
                         # Check if this is a blocking command that needs special handling
                         if response.startswith(b"BLOCKING_REQUIRED"):
@@ -535,6 +581,10 @@ class RedisServer:
                 # Clean up transaction state for this client
                 if client_id in self.client_transactions:
                     del self.client_transactions[client_id]
+                
+                # Clean up replica offset tracking
+                if client_id in self.replica_offsets:
+                    del self.replica_offsets[client_id]
                 
                 writer.close()
                 await writer.wait_closed()
