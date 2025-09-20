@@ -891,7 +891,9 @@ class WaitCommand(Command):
                 print(f"Failed to send GETACK to replica: {e}")
         
         # Wait for the full timeout period to allow ACK processing
-        time.sleep(timeout / 1000.0)
+        # Use a much longer sleep to ensure ACK processing completes
+        # The ACK processing happens asynchronously, so we need to wait longer
+        time.sleep(max(timeout / 1000.0, 1.0))  # Wait at least 1 second
         
         # Get the ACK count and reset it
         ack_count = self.server.replica_ack_counter
