@@ -61,6 +61,17 @@ class RDBParser:
                                 'value': value,
                                 'expires_at': expire_time / 1000.0  # Convert to seconds
                             }
+                elif opcode == b'\xfc':  # EXPIRETIME
+                    expire_time = struct.unpack('<I', stream.read(4))[0]
+                    # Read the next opcode for the actual key
+                    key_opcode = stream.read(1)
+                    if key_opcode:
+                        key, value = self._parse_key_value(stream, key_opcode)
+                        if key:
+                            data[key] = {
+                                'value': value,
+                                'expires_at': float(expire_time)  # Already in seconds
+                            }
                 elif opcode in [b'\x00', b'\x01', b'\x02', b'\x03', b'\x04', b'\x05', b'\x06', b'\x07', b'\x08', b'\x09', b'\x0a', b'\x0b', b'\x0c', b'\x0d', b'\x0e', b'\x0f']:
                     # Key-value pair
                     key, value = self._parse_key_value(stream, opcode)

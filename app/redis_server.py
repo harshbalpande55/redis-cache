@@ -121,6 +121,7 @@ class RedisServer:
     def load_rdb_data(self) -> None:
         """Load data from RDB file if it exists."""
         import os
+        import time
         
         rdb_path = os.path.join(self.config['dir'], self.config['dbfilename'])
         
@@ -134,27 +135,45 @@ class RedisServer:
                     parsed_data = self.rdb_parser.parse_rdb_file(rdb_data)
                     
                     # Load data into storage
+                    current_time = time.time()
+                    loaded_count = 0
+                    
                     for key, data in parsed_data.items():
                         value = data['value']
                         expires_at = data.get('expires_at')
                         
+                        # Skip expired keys during loading
+                        if expires_at is not None and current_time > expires_at:
+                            print(f"Skipping expired key: {key}")
+                            continue
+                        
                         if isinstance(value, str):
                             # String value
                             self.storage.set(key, value, expires_at)
+                            loaded_count += 1
                         elif isinstance(value, list):
                             # List value
                             if value:  # Only if list is not empty
                                 self.storage.rpush(key, *value)
+                                # Set expiry time for the list if it exists
+                                if expires_at is not None:
+                                    # We need to manually set the expiry time for the list
+                                    # since rpush doesn't support expiry parameter
+                                    if key in self.storage._data:
+                                        self.storage._data[key]["expires_at"] = expires_at
+                                loaded_count += 1
                         elif isinstance(value, dict):
                             # Hash value - for now, store as string representation
                             # In a full implementation, we'd need hash support in storage
                             self.storage.set(key, str(value), expires_at)
+                            loaded_count += 1
                         elif isinstance(value, set):
                             # Set value - for now, store as string representation
                             # In a full implementation, we'd need set support in storage
                             self.storage.set(key, str(value), expires_at)
+                            loaded_count += 1
                     
-                    print(f"Loaded {len(parsed_data)} keys from RDB file")
+                    print(f"Loaded {loaded_count} keys from RDB file (skipped {len(parsed_data) - loaded_count} expired keys)")
                 else:
                     print("RDB file is empty")
             except Exception as e:
