@@ -16,7 +16,7 @@ from app.commands import (
     RpushCommand, DelCommand, ExistsCommand, LrangeCommand, LpushCommand,
     LlenCommand, LpopCommand, BlpopCommand, XaddCommand, XrangeCommand, XreadCommand, TypeCommand, IncrCommand, InfoCommand, ReplconfCommand, PsyncCommand, WaitCommand, ConfigCommand, SaveCommand, BgsaveCommand, KeysCommand, SubscribeCommand, PublishCommand, UnsubscribeCommand,
     ZaddCommand, ZrankCommand, ZrangeCommand, ZcardCommand, ZscoreCommand, ZremCommand,
-    GeoaddCommand, GeoposCommand, GeodistCommand, GeoradiusCommand
+    GeoaddCommand, GeoposCommand, GeodistCommand, GeoradiusCommand, GeosearchCommand
 )
 
 
@@ -122,6 +122,7 @@ class RedisServer:
             GeoposCommand(self.storage),
             GeodistCommand(self.storage),
             GeoradiusCommand(self.storage),
+            GeosearchCommand(self.storage),
             # MULTI and EXEC are now handled directly in handle_client
         ]
         

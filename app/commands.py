@@ -1489,3 +1489,63 @@ class GeoradiusCommand(Command):
     
     def get_name(self) -> str:
         return "GEORADIUS"
+
+
+class GeosearchCommand(Command):
+    """GEOSEARCH command implementation for Redis geospatial operations."""
+    
+    def execute(self, args: List[str]) -> bytes:
+        if len(args) < 6:
+            return self.formatter.error("wrong number of arguments for 'geosearch' command")
+        
+        key = args[0]
+        longitude = None
+        latitude = None
+        radius = None
+        unit = "m"  # default unit
+        
+        # Parse arguments
+        i = 1
+        while i < len(args):
+            arg = args[i].upper()
+            if arg == "FROMLONLAT" and i + 2 < len(args):
+                try:
+                    longitude = float(args[i + 1])
+                    latitude = float(args[i + 2])
+                    i += 3  # Skip longitude and latitude values
+                except ValueError:
+                    return self.formatter.error("value is not a valid float")
+            elif arg == "BYRADIUS" and i + 2 < len(args):
+                try:
+                    radius = float(args[i + 1])
+                    unit = args[i + 2].lower()
+                    if unit not in ["m", "km", "mi", "ft"]:
+                        return self.formatter.error("unsupported unit provided. please use m, km, mi, ft")
+                    i += 3  # Skip radius and unit values
+                except ValueError:
+                    return self.formatter.error("value is not a valid float")
+            else:
+                return self.formatter.error(f"unknown argument '{args[i]}'")
+        
+        # Validate required parameters
+        if longitude is None or latitude is None:
+            return self.formatter.error("FROMLONLAT option is required")
+        if radius is None:
+            return self.formatter.error("BYRADIUS option is required")
+        
+        try:
+            # Use the existing georadius method from storage
+            results = self.storage.georadius(key, longitude, latitude, radius, unit, False, False, None)
+            
+            # Format the result as RESP array of member names only
+            formatted_results = []
+            for result in results:
+                # Result is just the member name
+                formatted_results.append(self.formatter.bulk_string(result[0]))
+            
+            return self.formatter.array(formatted_results)
+        except ValueError as e:
+            return self.formatter.error(str(e))
+    
+    def get_name(self) -> str:
+        return "GEOSEARCH"
