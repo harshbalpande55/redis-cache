@@ -731,6 +731,7 @@ class RedisServer:
                             # After SUBSCRIBE, the client enters pub/sub mode
                             # For now, we'll just keep the connection alive
                             # In a full implementation, we would handle PUBLISH commands here
+                            # Multiple subscriptions are supported per client
                             print(f"Client {client_id} subscribed to channel '{channel}' (total subscriptions: {subscription_count})")
                         else:
                             # Send normal response (skip if response is None for replica commands)
