@@ -897,6 +897,7 @@ class WaitCommand(Command):
         
         # Get the ACK count and reset it
         ack_count = self.server.replica_ack_counter
+        print(f"WAIT: Final ACK count = {ack_count}, numreplicas = {numreplicas}")
         self.server.replica_ack_counter = 0
         
         return self.formatter.integer(ack_count)

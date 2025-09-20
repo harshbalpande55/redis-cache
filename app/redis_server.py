@@ -459,6 +459,7 @@ class RedisServer:
                                     self.update_replica_offset(writer, replica_offset)
                                     # Increment ACK counter for WAIT command
                                     self.replica_ack_counter += 1
+                                    print(f"ACK received: replica_offset={replica_offset}, ack_counter={self.replica_ack_counter}")
                                 except ValueError:
                                     pass  # Invalid offset, ignore
                         elif command == "REPLCONF" and len(args) > 0 and args[0].lower() == "getack":
