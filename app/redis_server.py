@@ -77,6 +77,7 @@ class RedisServer:
         # Pub/Sub subscription management
         self.subscriptions = {}  # channel -> set of client writers
         self.client_subscriptions = {}  # client_id -> set of channels
+        self.subscribed_clients = set()  # client_id -> bool (track clients in subscribed mode)
     
     def _register_commands(self) -> None:
         """Register all available commands."""
@@ -136,6 +137,9 @@ class RedisServer:
             self.client_subscriptions[client_id] = set()
         self.client_subscriptions[client_id].add(channel)
         
+        # Mark client as being in subscribed mode
+        self.subscribed_clients.add(client_id)
+        
         # Return the number of channels this client is subscribed to
         return len(self.client_subscriptions[client_id])
     
@@ -152,6 +156,8 @@ class RedisServer:
             self.client_subscriptions[client_id].discard(channel)
             if not self.client_subscriptions[client_id]:
                 del self.client_subscriptions[client_id]
+                # Remove client from subscribed mode if no more subscriptions
+                self.subscribed_clients.discard(client_id)
                 return 0
             return len(self.client_subscriptions[client_id])
         
@@ -163,6 +169,21 @@ class RedisServer:
             channels = list(self.client_subscriptions[client_id])
             for channel in channels:
                 self.unsubscribe_client_from_channel(client_id, writer, channel)
+        
+        # Remove client from subscribed mode
+        self.subscribed_clients.discard(client_id)
+    
+    def is_client_subscribed(self, client_id: int) -> bool:
+        """Check if a client is in subscribed mode."""
+        return client_id in self.subscribed_clients
+    
+    def is_command_allowed_in_subscribed_mode(self, command: str) -> bool:
+        """Check if a command is allowed in subscribed mode."""
+        allowed_commands = {
+            'SUBSCRIBE', 'UNSUBSCRIBE', 'PSUBSCRIBE', 'PUNSUBSCRIBE', 
+            'PING', 'QUIT', 'RESET'
+        }
+        return command.upper() in allowed_commands
     
     def load_rdb_data(self) -> None:
         """Load data from RDB file if it exists."""
@@ -609,35 +630,43 @@ class RedisServer:
                         else:
                             # Regular command execution
                             if self.client_transactions[client_id]['in_transaction']:
-                                # Queue command for later execution
-                                self.client_transactions[client_id]['commands'].append((command, args))
-                                
-                                # Check if this is a replica connection
-                                is_replica = is_replica_connection or self.client_transactions[client_id].get('is_replica', False)
-                                
-                                if not is_replica:
-                                    response = self.response_formatter.simple_string("QUEUED")
+                                # Check if client is in subscribed mode and command is not allowed
+                                if self.is_client_subscribed(client_id) and not self.is_command_allowed_in_subscribed_mode(command):
+                                    response = self.response_formatter.error(f"Can't execute '{command.lower()}': only (P|S)SUBSCRIBE / (P|S)UNSUBSCRIBE / PING / QUIT / RESET are allowed in this context")
                                 else:
-                                    # Replica commands in transactions don't send responses
-                                    response = None
+                                    # Queue command for later execution
+                                    self.client_transactions[client_id]['commands'].append((command, args))
                                     
-                                    # Update replica offset for queued commands
-                                    command_bytes = self.calculate_command_bytes(command, args)
-                                    self.replica_offsets[client_id] += command_bytes
+                                    # Check if this is a replica connection
+                                    is_replica = is_replica_connection or self.client_transactions[client_id].get('is_replica', False)
+                                    
+                                    if not is_replica:
+                                        response = self.response_formatter.simple_string("QUEUED")
+                                    else:
+                                        # Replica commands in transactions don't send responses
+                                        response = None
+                                        
+                                        # Update replica offset for queued commands
+                                        command_bytes = self.calculate_command_bytes(command, args)
+                                        self.replica_offsets[client_id] += command_bytes
                             else:
-                                # Handle WAIT command specially since it needs async execution
-                                if command == "WAIT":
-                                    # Execute WAIT command with async support
-                                    try:
-                                        numreplicas = int(args[0])
-                                        timeout = int(args[1])
-                                        ack_count = await self.wait_for_replica_acks(numreplicas, timeout)
-                                        response = self.response_formatter.integer(ack_count)
-                                    except (ValueError, IndexError):
-                                        response = self.response_formatter.error("wrong number of arguments for 'wait' command")
+                                # Check if client is in subscribed mode and command is not allowed
+                                if self.is_client_subscribed(client_id) and not self.is_command_allowed_in_subscribed_mode(command):
+                                    response = self.response_formatter.error(f"Can't execute '{command.lower()}': only (P|S)SUBSCRIBE / (P|S)UNSUBSCRIBE / PING / QUIT / RESET are allowed in this context")
                                 else:
-                                    # Execute other commands normally
-                                    response = self.command_registry.execute_command(command, args)
+                                    # Handle WAIT command specially since it needs async execution
+                                    if command == "WAIT":
+                                        # Execute WAIT command with async support
+                                        try:
+                                            numreplicas = int(args[0])
+                                            timeout = int(args[1])
+                                            ack_count = await self.wait_for_replica_acks(numreplicas, timeout)
+                                            response = self.response_formatter.integer(ack_count)
+                                        except (ValueError, IndexError):
+                                            response = self.response_formatter.error("wrong number of arguments for 'wait' command")
+                                    else:
+                                        # Execute other commands normally
+                                        response = self.command_registry.execute_command(command, args)
                                 
                                 # Check if this is a replica connection
                                 is_replica = is_replica_connection or self.client_transactions[client_id].get('is_replica', False)
