@@ -907,7 +907,7 @@ class WaitCommand(Command):
                 break
             
             # Wait longer for ACK processing to complete
-            time.sleep(0.3)
+            time.sleep(0.5)
         
         return self.formatter.integer(ack_count)
     
