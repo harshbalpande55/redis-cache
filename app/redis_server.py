@@ -660,6 +660,7 @@ class RedisServer:
                             
                             # Handle REPLCONF GETACK command specially - it needs a response
                             if command == "REPLCONF" and args and args[0] == "GETACK":
+                                print(f"Replica {client_id} received GETACK command, current offset: {replica_offset}")
                                 # Send ACK response to master with current offset (before processing this command)
                                 ack_response = f"*3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n${len(str(replica_offset))}\r\n{replica_offset}\r\n"
                                 writer.write(ack_response.encode())
@@ -860,11 +861,13 @@ class RedisServer:
         self.ack_received_from.clear()
         
         # Send REPLCONF GETACK to all replicas
+        print(f"WAIT: Sending GETACK to {len(self.connected_replicas)} replicas")
         for reader, writer, offset in self.connected_replicas:
             try:
                 getack_command = "*3\r\n$8\r\nREPLCONF\r\n$6\r\nGETACK\r\n$1\r\n*\r\n"
                 writer.write(getack_command.encode())
                 await writer.drain()
+                print(f"WAIT: Sent GETACK to replica with offset {offset}")
             except Exception as e:
                 print(f"Failed to send GETACK to replica: {e}")
         
