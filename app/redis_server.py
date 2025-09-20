@@ -10,6 +10,7 @@ from app.storage import StorageBackend, InMemoryStorage
 from app.protocol import RedisProtocolParser, RedisResponseFormatter
 from app.command_registry import CommandRegistry
 from app.blocking_manager import BlockingManager
+from app.rdb_parser import RDBParser
 from app.commands import (
     PingCommand, EchoCommand, SetCommand, GetCommand, 
     RpushCommand, DelCommand, ExistsCommand, LrangeCommand, LpushCommand,
@@ -69,6 +70,9 @@ class RedisServer:
             'dir': '.',
             'dbfilename': 'dump.rdb'
         }
+        
+        # RDB parser
+        self.rdb_parser = RDBParser()
     
     def _register_commands(self) -> None:
         """Register all available commands."""
@@ -113,6 +117,50 @@ class RedisServer:
         """Set configuration parameters for RDB persistence."""
         self.config['dir'] = dir_path
         self.config['dbfilename'] = dbfilename
+    
+    def load_rdb_data(self) -> None:
+        """Load data from RDB file if it exists."""
+        import os
+        
+        rdb_path = os.path.join(self.config['dir'], self.config['dbfilename'])
+        
+        if os.path.exists(rdb_path):
+            try:
+                with open(rdb_path, 'rb') as f:
+                    rdb_data = f.read()
+                
+                if rdb_data:
+                    print(f"Loading RDB file: {rdb_path}")
+                    parsed_data = self.rdb_parser.parse_rdb_file(rdb_data)
+                    
+                    # Load data into storage
+                    for key, data in parsed_data.items():
+                        value = data['value']
+                        expires_at = data.get('expires_at')
+                        
+                        if isinstance(value, str):
+                            # String value
+                            self.storage.set(key, value, expires_at)
+                        elif isinstance(value, list):
+                            # List value
+                            if value:  # Only if list is not empty
+                                self.storage.rpush(key, *value)
+                        elif isinstance(value, dict):
+                            # Hash value - for now, store as string representation
+                            # In a full implementation, we'd need hash support in storage
+                            self.storage.set(key, str(value), expires_at)
+                        elif isinstance(value, set):
+                            # Set value - for now, store as string representation
+                            # In a full implementation, we'd need set support in storage
+                            self.storage.set(key, str(value), expires_at)
+                    
+                    print(f"Loaded {len(parsed_data)} keys from RDB file")
+                else:
+                    print("RDB file is empty")
+            except Exception as e:
+                print(f"Error loading RDB file: {e}")
+        else:
+            print(f"RDB file not found: {rdb_path}")
     
     def add_replica_connection(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         """Add a replica connection for command propagation."""
@@ -846,6 +894,9 @@ class RedisServer:
     async def start_server(self, host: str = "localhost", port: int = 6379) -> None:
         """Start the Redis server."""
         print(f"Starting Redis server on {host}:{port}")
+        
+        # Load RDB data on startup
+        self.load_rdb_data()
         
         # Create async server that handles multiple clients concurrently
         server = await asyncio.start_server(
