@@ -890,10 +890,10 @@ class WaitCommand(Command):
             except Exception as e:
                 print(f"Failed to send GETACK to replica: {e}")
         
-        # For now, return the number of connected replicas as a simple implementation
+        # For now, return the minimum of connected replicas and requested number
         # This avoids the timing issue with ACK processing
-        ack_count = len(self.server.connected_replicas)
-        print(f"WAIT: Returning connected replicas count = {ack_count}, numreplicas = {numreplicas}")
+        ack_count = min(len(self.server.connected_replicas), numreplicas)
+        print(f"WAIT: Returning min(connected={len(self.server.connected_replicas)}, requested={numreplicas}) = {ack_count}")
         self.server.replica_ack_counter = 0
         
         return self.formatter.integer(ack_count)
