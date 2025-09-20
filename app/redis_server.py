@@ -502,11 +502,11 @@ class RedisServer:
                                 if not is_replica:
                                     # This is a regular client, propagate commands to replicas
                                     # Propagate only data-modifying commands to replicas
-                                    if command not in ["PING", "REPLCONF", "PSYNC", "INFO", "GET", "LRANGE", "LLEN", "TYPE", "EXISTS", "ECHO"]:
+                                    if command not in ["PING", "REPLCONF", "PSYNC", "INFO", "GET", "LRANGE", "LLEN", "TYPE", "EXISTS", "ECHO", "WAIT"]:
                                         await self.propagate_command_to_replicas(command, args)
                                     
                                     # Increment replication offset only for data-modifying commands
-                                    if command not in ["PING", "REPLCONF", "PSYNC", "INFO", "GET", "LRANGE", "LLEN", "TYPE", "EXISTS"]:
+                                    if command not in ["PING", "REPLCONF", "PSYNC", "INFO", "GET", "LRANGE", "LLEN", "TYPE", "EXISTS", "WAIT"]:
                                         command_bytes = len(data)
                                         self.increment_replication_offset(command_bytes)
                                     
