@@ -897,9 +897,12 @@ class WaitCommand(Command):
             if ack_count >= numreplicas:
                 break
             
-            # For simplicity, we'll return the number of connected replicas
-            # In a real implementation, we'd need to track actual ACK responses
-            ack_count = len(self.server.connected_replicas)
+            # Count replicas that have acknowledged up to current offset
+            ack_count = 0
+            for reader, writer, offset in self.server.connected_replicas:
+                if offset >= current_offset:
+                    ack_count += 1
+            
             if ack_count >= numreplicas:
                 break
             
