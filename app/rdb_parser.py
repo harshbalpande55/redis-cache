@@ -69,7 +69,8 @@ class RDBParser:
                 elif opcode == b'\xfc':  # EXPIRETIME
                     # Skip the timestamp for now - just read until we find the next opcode
                     # The timestamp format is complex and varies
-                    expire_time = 0  # Set to 0 for now
+                    # For now, set a future expiry time so keys are not expired
+                    expire_time = 9999999999  # Far in the future
                     while True:
                         next_byte = stream.read(1)
                         if not next_byte:
