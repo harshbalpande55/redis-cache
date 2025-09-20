@@ -499,7 +499,7 @@ class RedisServer:
                                     
                                     # Increment replication offset only for data-modifying commands
                                     if command not in ["PING", "REPLCONF", "PSYNC", "INFO", "GET", "LRANGE", "LLEN", "TYPE", "EXISTS"]:
-                                        command_bytes = len(data)
+                                        command_bytes = self.calculate_command_bytes(command, args)
                                         self.increment_replication_offset(command_bytes)
                                 else:
                                     # This is a replica receiving commands from master
