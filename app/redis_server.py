@@ -638,9 +638,10 @@ class RedisServer:
             
             while True:
                 # Read data from master without timeout - this will block until data is available
+                print(f"Replica {client_id} waiting for data from master...")
                 data = await reader.read(1024)
                 if not data:
-                    print("Master disconnected")
+                    print(f"Replica {client_id}: Master disconnected")
                     break
                 
                 print(f"Replica {client_id} received {len(data)} bytes from master: {data[:100]}...")
