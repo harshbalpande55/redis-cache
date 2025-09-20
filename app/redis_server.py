@@ -438,7 +438,7 @@ class RedisServer:
                             
                             # Continue processing commands in replica mode
                             print(f"PSYNC completed for client {client_id}, continuing in replica mode")
-                            continue
+                            # Don't use continue here - let the normal flow handle replica commands
                         elif command == "REPLCONF" and len(args) > 0 and args[0].lower() == "ack":
                             # Handle REPLCONF ACK command and update replica offset
                             response = self.command_registry.execute_command(command, args)
@@ -488,8 +488,8 @@ class RedisServer:
                                 
                                 if not is_replica:
                                     # This is a regular client, propagate commands to replicas
-                                    # Propagate all commands except replication-specific ones
-                                    if command not in ["REPLCONF", "PSYNC", "INFO"]:
+                                    # Propagate only data-modifying commands to replicas
+                                    if command not in ["PING", "REPLCONF", "PSYNC", "INFO", "GET", "LRANGE", "LLEN", "TYPE", "EXISTS", "ECHO"]:
                                         await self.propagate_command_to_replicas(command, args)
                                     
                                     # Increment replication offset only for data-modifying commands
