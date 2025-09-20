@@ -870,6 +870,9 @@ class RedisServer:
                 writer.write(getack_command.encode())
                 await writer.drain()
                 print(f"WAIT: Sent GETACK to replica {i} with offset {offset}, writer: {id(writer)}")
+                
+                # Give the replica a moment to process the GETACK command
+                await asyncio.sleep(0.01)
             except Exception as e:
                 print(f"Failed to send GETACK to replica {i}: {e}")
         
