@@ -14,7 +14,7 @@ from app.rdb_parser import RDBParser
 from app.commands import (
     PingCommand, EchoCommand, SetCommand, GetCommand, 
     RpushCommand, DelCommand, ExistsCommand, LrangeCommand, LpushCommand,
-    LlenCommand, LpopCommand, BlpopCommand, XaddCommand, XrangeCommand, XreadCommand, TypeCommand, IncrCommand, InfoCommand, ReplconfCommand, PsyncCommand, WaitCommand, ConfigCommand, SaveCommand, BgsaveCommand, KeysCommand, SubscribeCommand, PublishCommand
+    LlenCommand, LpopCommand, BlpopCommand, XaddCommand, XrangeCommand, XreadCommand, TypeCommand, IncrCommand, InfoCommand, ReplconfCommand, PsyncCommand, WaitCommand, ConfigCommand, SaveCommand, BgsaveCommand, KeysCommand, SubscribeCommand, PublishCommand, UnsubscribeCommand
 )
 
 
@@ -109,6 +109,7 @@ class RedisServer:
             KeysCommand(self.storage),
             SubscribeCommand(self.storage, self),
             PublishCommand(self.storage, self),
+            UnsubscribeCommand(self.storage, self),
             # MULTI and EXEC are now handled directly in handle_client
         ]
         
@@ -146,6 +147,9 @@ class RedisServer:
     
     def unsubscribe_client_from_channel(self, client_id: int, writer: asyncio.StreamWriter, channel: str) -> int:
         """Unsubscribe a client from a channel. Returns the number of channels the client is subscribed to."""
+        # Get current subscription count before making changes
+        current_count = len(self.client_subscriptions.get(client_id, set()))
+        
         # Remove client from channel's subscription list
         if channel in self.subscriptions:
             self.subscriptions[channel].discard(writer)
@@ -154,6 +158,9 @@ class RedisServer:
         
         # Remove channel from client's subscription list
         if client_id in self.client_subscriptions:
+            # Check if the client was actually subscribed to this channel
+            was_subscribed = channel in self.client_subscriptions[client_id]
+            
             self.client_subscriptions[client_id].discard(channel)
             if not self.client_subscriptions[client_id]:
                 del self.client_subscriptions[client_id]
@@ -162,6 +169,7 @@ class RedisServer:
                 return 0
             return len(self.client_subscriptions[client_id])
         
+        # If client wasn't subscribed to any channels, return 0
         return 0
     
     def cleanup_client_subscriptions(self, client_id: int, writer: asyncio.StreamWriter) -> None:
@@ -823,6 +831,21 @@ class RedisServer:
                             # In a full implementation, we would handle PUBLISH commands here
                             # Multiple subscriptions are supported per client
                             print(f"Client {client_id} subscribed to channel '{channel}' (total subscriptions: {subscription_count})")
+                        elif response and response.startswith(b"UNSUBSCRIBE_REQUIRED"):
+                            # Handle UNSUBSCRIBE command
+                            channel = response.decode('utf-8').split(':')[1]
+                            remaining_count = self.unsubscribe_client_from_channel(client_id, writer, channel)
+                            
+                            # Send the UNSUBSCRIBE response: ["unsubscribe", channel, count]
+                            unsubscribe_response = self.response_formatter.array([
+                                self.response_formatter.bulk_string("unsubscribe"),
+                                self.response_formatter.bulk_string(channel),
+                                self.response_formatter.integer(remaining_count)
+                            ])
+                            writer.write(unsubscribe_response)
+                            await writer.drain()
+                            
+                            print(f"Client {client_id} unsubscribed from channel '{channel}' (remaining subscriptions: {remaining_count})")
                         else:
                             # Send normal response (skip if response is None for replica commands)
                             if response is not None:

@@ -1135,3 +1135,28 @@ class PublishCommand(Command):
     
     def get_name(self) -> str:
         return "PUBLISH"
+
+
+class UnsubscribeCommand(Command):
+    """UNSUBSCRIBE command implementation for Redis pub/sub."""
+    
+    def __init__(self, storage: StorageBackend, server=None):
+        super().__init__(storage)
+        self.server = server
+    
+    def execute(self, args: List[str], client_id: int = None, writer: asyncio.StreamWriter = None) -> bytes:
+        if len(args) < 1:
+            return self.formatter.error("wrong number of arguments for 'unsubscribe' command")
+        
+        if not self.server:
+            return self.formatter.error("ERR Server not available for UNSUBSCRIBE command")
+        
+        # For now, we only handle a single channel unsubscription
+        channel = args[0]
+        
+        # This is a special command that requires server context to track subscriptions
+        # Return a special response that indicates unsubscription is needed
+        return f"UNSUBSCRIBE_REQUIRED:{channel}".encode('utf-8')
+    
+    def get_name(self) -> str:
+        return "UNSUBSCRIBE"
