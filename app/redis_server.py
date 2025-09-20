@@ -45,6 +45,8 @@ class RedisServer:
         self.prev_command = None  # Track the previous command
         self.replica_ack_counter = 0  # Global ACK counter for WAIT
         self.replica_ack_lock = asyncio.Lock()  # Lock for ACK counter
+        self.waiting_for_acks = False  # Flag to indicate if we're waiting for ACKs
+        self.ack_received_from = set()  # Track which replicas have sent ACKs
         
         # Replica configuration
         self.is_replica = False
@@ -462,9 +464,12 @@ class RedisServer:
                                 try:
                                     replica_offset = int(args[1])
                                     self.update_replica_offset(writer, replica_offset)
-                                    # Increment ACK counter for WAIT command
-                                    self.replica_ack_counter += 1
-                                    print(f"ACK received: replica_offset={replica_offset}, ack_counter={self.replica_ack_counter}")
+                                    
+                                    # Only increment ACK counter if we're waiting for ACKs and this replica hasn't ACKed yet
+                                    if self.waiting_for_acks and writer not in self.ack_received_from:
+                                        self.replica_ack_counter += 1
+                                        self.ack_received_from.add(writer)
+                                        print(f"ACK received: replica_offset={replica_offset}, ack_counter={self.replica_ack_counter}")
                                 except ValueError:
                                     pass  # Invalid offset, ignore
                         elif command == "REPLCONF" and len(args) > 0 and args[0].lower() == "getack":
@@ -498,8 +503,19 @@ class RedisServer:
                                     command_bytes = self.calculate_command_bytes(command, args)
                                     self.replica_offsets[client_id] += command_bytes
                             else:
-                                # Execute command immediately
-                                response = self.command_registry.execute_command(command, args)
+                                # Handle WAIT command specially since it needs async execution
+                                if command == "WAIT":
+                                    # Execute WAIT command with async support
+                                    try:
+                                        numreplicas = int(args[0])
+                                        timeout = int(args[1])
+                                        ack_count = await self.wait_for_replica_acks(numreplicas, timeout)
+                                        response = self.response_formatter.integer(ack_count)
+                                    except (ValueError, IndexError):
+                                        response = self.response_formatter.error("wrong number of arguments for 'wait' command")
+                                else:
+                                    # Execute other commands normally
+                                    response = self.command_registry.execute_command(command, args)
                                 
                                 # Check if this is a replica connection
                                 is_replica = is_replica_connection or self.client_transactions[client_id].get('is_replica', False)
@@ -821,6 +837,47 @@ class RedisServer:
                 asyncio.create_task(self.start_replication_handshake(port))
             
             await server.serve_forever()
+    
+    async def wait_for_replica_acks(self, numreplicas: int, timeout: int) -> int:
+        """Async method to wait for replica acknowledgments."""
+        import time
+        
+        # Set up for waiting
+        self.waiting_for_acks = True
+        self.replica_ack_counter = 0
+        self.ack_received_from.clear()
+        
+        # Send REPLCONF GETACK to all replicas
+        for reader, writer, offset in self.connected_replicas:
+            try:
+                getack_command = "*3\r\n$8\r\nREPLCONF\r\n$6\r\nGETACK\r\n$1\r\n*\r\n"
+                writer.write(getack_command.encode())
+                await writer.drain()
+            except Exception as e:
+                print(f"Failed to send GETACK to replica: {e}")
+        
+        # Wait for ACKs with timeout
+        start_time = time.time()
+        timeout_seconds = timeout / 1000.0  # Convert milliseconds to seconds
+        
+        try:
+            while True:
+                # Check if we have enough ACKs
+                if self.replica_ack_counter >= numreplicas:
+                    print(f"WAIT: Got {self.replica_ack_counter} ACKs, requested {numreplicas}")
+                    return self.replica_ack_counter
+                
+                # Check if timeout has expired
+                if time.time() - start_time >= timeout_seconds:
+                    print(f"WAIT: Timeout reached, got {self.replica_ack_counter} ACKs, requested {numreplicas}")
+                    return self.replica_ack_counter
+                
+                # Small delay to prevent busy waiting
+                await asyncio.sleep(0.001)  # 1ms delay
+        finally:
+            # Clean up waiting state
+            self.waiting_for_acks = False
+            self.ack_received_from.clear()
     
     def get_stats(self) -> dict:
         """Get server statistics."""

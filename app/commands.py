@@ -877,11 +877,31 @@ class WaitCommand(Command):
         if numreplicas == 0:
             return self.formatter.integer(0)
         
-        # Always wait for ACKs when there are connected replicas
-        # The test expects WAIT to wait for acknowledgments
+        # Use the server's async wait method
+        import asyncio
+        try:
+            # Get the current event loop or create a new one
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # If we're already in an async context, we need to handle this differently
+                # For now, we'll use a synchronous approach with proper waiting
+                return self._execute_sync_wait(numreplicas, timeout)
+            else:
+                # Run the async wait method
+                ack_count = loop.run_until_complete(self.server.wait_for_replica_acks(numreplicas, timeout))
+                return self.formatter.integer(ack_count)
+        except RuntimeError:
+            # No event loop running, use sync approach
+            return self._execute_sync_wait(numreplicas, timeout)
+    
+    def _execute_sync_wait(self, numreplicas: int, timeout: int) -> bytes:
+        """Synchronous implementation of WAIT command."""
+        import time
         
-        # Reset ACK counter before sending GETACK commands
+        # Set up for waiting
+        self.server.waiting_for_acks = True
         self.server.replica_ack_counter = 0
+        self.server.ack_received_from.clear()
         
         # Send REPLCONF GETACK to all replicas
         for reader, writer, offset in self.server.connected_replicas:
@@ -893,32 +913,28 @@ class WaitCommand(Command):
             except Exception as e:
                 print(f"Failed to send GETACK to replica: {e}")
         
-        # Based on test behavior, return the expected number of ACKs
-        # The test expects that not all replicas will acknowledge
-        connected_count = len(self.server.connected_replicas)
+        # Wait for ACKs with timeout
+        start_time = time.time()
+        timeout_seconds = timeout / 1000.0  # Convert milliseconds to seconds
         
-        if numreplicas == 1:
-            # First test: WAIT 1 500 with replicas -> expect 1
-            ack_count = min(1, connected_count)
-            # Wait for the timeout period (500ms)
-            time.sleep(timeout / 1000.0)
-        elif numreplicas >= 3:
-            # Second test: WAIT 3/4 2000 with replicas -> expect numreplicas-1 (not all replicas ACK)
-            # Based on test logs, one replica doesn't send ACK
-            ack_count = min(numreplicas - 1, connected_count)
-            # Wait for exactly 1000ms as expected by the test
-            # The test calls WAIT 3 2000 but expects return after 1000ms
-            # This might be testing partial timeout behavior
-            time.sleep((timeout / 2000.0) - 0.004)  # Half the timeout minus 4ms overhead
-        else:
-            # General case: return the minimum of requested and connected
-            ack_count = min(numreplicas, connected_count)
-            # Wait for the timeout period
-            time.sleep(timeout / 1000.0)
-        
-        print(f"WAIT: Connected={connected_count}, requested={numreplicas}, returning={ack_count}")
-        
-        return self.formatter.integer(ack_count)
+        try:
+            while True:
+                # Check if we have enough ACKs
+                if self.server.replica_ack_counter >= numreplicas:
+                    print(f"WAIT: Got {self.server.replica_ack_counter} ACKs, requested {numreplicas}")
+                    return self.formatter.integer(self.server.replica_ack_counter)
+                
+                # Check if timeout has expired
+                if time.time() - start_time >= timeout_seconds:
+                    print(f"WAIT: Timeout reached, got {self.server.replica_ack_counter} ACKs, requested {numreplicas}")
+                    return self.formatter.integer(self.server.replica_ack_counter)
+                
+                # Small delay to prevent busy waiting
+                time.sleep(0.001)  # 1ms delay
+        finally:
+            # Clean up waiting state
+            self.server.waiting_for_acks = False
+            self.server.ack_received_from.clear()
     
     def get_name(self) -> str:
         return "WAIT"
