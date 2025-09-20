@@ -1306,3 +1306,176 @@ class ZremCommand(Command):
     
     def get_name(self) -> str:
         return "ZREM"
+
+
+class GeoaddCommand(Command):
+    """GEOADD command implementation for Redis geospatial operations."""
+    
+    def execute(self, args: List[str]) -> bytes:
+        if len(args) < 4:
+            return self.formatter.error("wrong number of arguments for 'geoadd' command")
+        
+        key = args[0]
+        coordinate_pairs = args[1:]
+        
+        # Validate that we have triplets (longitude, latitude, member)
+        if len(coordinate_pairs) % 3 != 0:
+            return self.formatter.error("wrong number of arguments for 'geoadd' command")
+        
+        try:
+            # Convert coordinate strings to floats
+            converted_pairs = []
+            for i in range(0, len(coordinate_pairs), 3):
+                longitude = float(coordinate_pairs[i])
+                latitude = float(coordinate_pairs[i + 1])
+                member = coordinate_pairs[i + 2]
+                converted_pairs.extend([longitude, latitude, member])
+            
+            # Add geospatial locations
+            new_locations = self.storage.geoadd(key, *converted_pairs)
+            return self.formatter.integer(new_locations)
+        except ValueError as e:
+            if "Invalid longitude" in str(e) or "Invalid latitude" in str(e):
+                return self.formatter.error(str(e))
+            else:
+                return self.formatter.error("value is not a valid float")
+    
+    def get_name(self) -> str:
+        return "GEOADD"
+
+
+class GeoposCommand(Command):
+    """GEOPOS command implementation for Redis geospatial operations."""
+    
+    def execute(self, args: List[str]) -> bytes:
+        if len(args) < 2:
+            return self.formatter.error("wrong number of arguments for 'geopos' command")
+        
+        key = args[0]
+        members = args[1:]
+        
+        coordinates = self.storage.geopos(key, *members)
+        
+        # Format the result as RESP array
+        result = []
+        for coord in coordinates:
+            if coord is None:
+                result.append(self.formatter.bulk_string(None))
+            else:
+                longitude, latitude = coord
+                # Return as array of [longitude, latitude]
+                coord_array = [
+                    self.formatter.bulk_string(str(longitude)),
+                    self.formatter.bulk_string(str(latitude))
+                ]
+                result.append(self.formatter.array(coord_array))
+        
+        return self.formatter.array(result)
+    
+    def get_name(self) -> str:
+        return "GEOPOS"
+
+
+class GeodistCommand(Command):
+    """GEODIST command implementation for Redis geospatial operations."""
+    
+    def execute(self, args: List[str]) -> bytes:
+        if len(args) < 3 or len(args) > 4:
+            return self.formatter.error("wrong number of arguments for 'geodist' command")
+        
+        key = args[0]
+        member1 = args[1]
+        member2 = args[2]
+        unit = args[3] if len(args) == 4 else "m"
+        
+        # Validate unit
+        if unit.lower() not in ["m", "km", "mi", "ft"]:
+            return self.formatter.error("unsupported unit provided. please use m, km, mi, ft")
+        
+        try:
+            distance = self.storage.geodist(key, member1, member2, unit)
+            if distance is None:
+                return self.formatter.bulk_string(None)
+            else:
+                return self.formatter.bulk_string(str(distance))
+        except ValueError as e:
+            return self.formatter.error(str(e))
+    
+    def get_name(self) -> str:
+        return "GEODIST"
+
+
+class GeoradiusCommand(Command):
+    """GEORADIUS command implementation for Redis geospatial operations."""
+    
+    def execute(self, args: List[str]) -> bytes:
+        if len(args) < 5:
+            return self.formatter.error("wrong number of arguments for 'georadius' command")
+        
+        key = args[0]
+        try:
+            longitude = float(args[1])
+            latitude = float(args[2])
+            radius = float(args[3])
+        except ValueError:
+            return self.formatter.error("value is not a valid float")
+        
+        unit = "m"  # default unit
+        withcoord = False
+        withdist = False
+        count = None
+        
+        # Parse optional arguments
+        i = 4
+        while i < len(args):
+            arg = args[i].upper()
+            if arg in ["M", "KM", "MI", "FT"]:
+                unit = arg.lower()
+            elif arg == "WITHCOORD":
+                withcoord = True
+            elif arg == "WITHDIST":
+                withdist = True
+            elif arg == "COUNT" and i + 1 < len(args):
+                try:
+                    count = int(args[i + 1])
+                    if count <= 0:
+                        return self.formatter.error("count must be a positive integer")
+                    i += 1  # Skip the count value
+                except ValueError:
+                    return self.formatter.error("count must be a positive integer")
+            else:
+                return self.formatter.error(f"unknown argument '{args[i]}'")
+            i += 1
+        
+        try:
+            results = self.storage.georadius(key, longitude, latitude, radius, unit, withcoord, withdist, count)
+            
+            # Format the result as RESP array
+            formatted_results = []
+            for result in results:
+                if withdist or withcoord:
+                    # Result is a list: [member, distance?, lon?, lat?]
+                    formatted_result = []
+                    formatted_result.append(self.formatter.bulk_string(result[0]))
+                    
+                    if withdist:
+                        formatted_result.append(self.formatter.bulk_string(str(result[1])))
+                    
+                    if withcoord:
+                        coord_start = 2 if withdist else 1
+                        formatted_result.extend([
+                            self.formatter.bulk_string(str(result[coord_start])),
+                            self.formatter.bulk_string(str(result[coord_start + 1]))
+                        ])
+                    
+                    formatted_results.append(self.formatter.array(formatted_result))
+                else:
+                    # Result is just the member name
+                    formatted_results.append(self.formatter.bulk_string(result[0]))
+            
+            return self.formatter.array(formatted_results)
+        except ValueError as e:
+            return self.formatter.error(str(e))
+    
+    def get_name(self) -> str:
+        return "GEORADIUS"

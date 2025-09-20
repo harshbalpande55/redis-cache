@@ -120,6 +120,27 @@ class StorageBackend(ABC):
     def zrem(self, key: str, *members: str) -> int:
         """Remove members from a sorted set. Returns the number of members removed."""
         pass
+    
+    # Geospatial methods
+    @abstractmethod
+    def geoadd(self, key: str, *longitude_latitude_member_pairs: Union[str, float]) -> int:
+        """Add geospatial locations to a sorted set. Returns the number of new locations added."""
+        pass
+    
+    @abstractmethod
+    def geopos(self, key: str, *members: str) -> List[Optional[tuple]]:
+        """Get coordinates of members. Returns list of (longitude, latitude) tuples or None."""
+        pass
+    
+    @abstractmethod
+    def geodist(self, key: str, member1: str, member2: str, unit: str = "m") -> Optional[float]:
+        """Calculate distance between two members. Returns distance in specified unit."""
+        pass
+    
+    @abstractmethod
+    def georadius(self, key: str, longitude: float, latitude: float, radius: float, unit: str = "m", withcoord: bool = False, withdist: bool = False, count: Optional[int] = None) -> List:
+        """Find members within radius of a point. Returns list of members with optional coordinates and distances."""
+        pass
 
 class InMemoryStorage(StorageBackend):
     """In-memory storage implementation with expiration support."""
@@ -740,3 +761,237 @@ class InMemoryStorage(StorageBackend):
             del self._data[key]
         
         return removed_count
+    
+    def _encode_geohash(self, longitude: float, latitude: float) -> int:
+        """Encode longitude and latitude into a geohash score for sorted set storage."""
+        # Redis uses a 52-bit geohash encoding
+        # This is a simplified implementation
+        # In practice, Redis uses a more complex geohash algorithm
+        
+        # Clamp coordinates to valid ranges
+        longitude = max(-180.0, min(180.0, longitude))
+        latitude = max(-85.05112878, min(85.05112878, latitude))
+        
+        # Convert to geohash score (simplified)
+        # This is a basic implementation - Redis uses a more sophisticated algorithm
+        lon_bits = int((longitude + 180.0) * 1048576)  # 2^20
+        lat_bits = int((latitude + 85.05112878) * 1048576)  # 2^20
+        
+        # Interleave longitude and latitude bits
+        geohash = 0
+        for i in range(20):
+            geohash |= (lon_bits & (1 << i)) << i
+            geohash |= (lat_bits & (1 << i)) << (i + 1)
+        
+        return geohash
+    
+    def _decode_geohash(self, geohash: int) -> tuple:
+        """Decode geohash score back to longitude and latitude."""
+        # Extract longitude and latitude bits
+        lon_bits = 0
+        lat_bits = 0
+        
+        for i in range(20):
+            if geohash & (1 << (i * 2)):
+                lon_bits |= (1 << i)
+            if geohash & (1 << (i * 2 + 1)):
+                lat_bits |= (1 << i)
+        
+        # Convert back to coordinates
+        longitude = (lon_bits / 1048576.0) - 180.0
+        latitude = (lat_bits / 1048576.0) - 85.05112878
+        
+        return longitude, latitude
+    
+    def _haversine_distance(self, lon1: float, lat1: float, lon2: float, lat2: float) -> float:
+        """Calculate the great circle distance between two points on Earth in meters."""
+        import math
+        
+        # Convert decimal degrees to radians
+        lon1, lat1, lon2, lat2 = map(math.radians, [lon1, lat1, lon2, lat2])
+        
+        # Haversine formula
+        dlon = lon2 - lon1
+        dlat = lat2 - lat1
+        a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
+        c = 2 * math.asin(math.sqrt(a))
+        
+        # Radius of earth in meters
+        r = 6371000
+        return c * r
+    
+    def geoadd(self, key: str, *longitude_latitude_member_pairs: Union[str, float]) -> int:
+        """Add geospatial locations to a sorted set. Returns the number of new locations added."""
+        if len(longitude_latitude_member_pairs) % 3 != 0:
+            raise ValueError("Longitude-latitude-member pairs must be multiples of 3")
+        
+        if key not in self._data:
+            # Create new sorted set
+            self._data[key] = {
+                "value": {},  # member -> (geohash, longitude, latitude)
+                "type": "zset",
+                "expires_at": None
+            }
+        
+        entry = self._data[key]
+        
+        # Check if the key has expired
+        if entry["expires_at"] is not None and time.time() > entry["expires_at"]:
+            # Key has expired, create new sorted set
+            self._data[key] = {
+                "value": {},
+                "type": "zset",
+                "expires_at": None
+            }
+            entry = self._data[key]
+        
+        # If key exists but is not a sorted set, convert it
+        if entry["type"] != "zset":
+            self._data[key] = {
+                "value": {},
+                "type": "zset",
+                "expires_at": entry["expires_at"]
+            }
+            entry = self._data[key]
+        
+        # Add geospatial locations
+        new_locations = 0
+        for i in range(0, len(longitude_latitude_member_pairs), 3):
+            longitude = float(longitude_latitude_member_pairs[i])
+            latitude = float(longitude_latitude_member_pairs[i + 1])
+            member = str(longitude_latitude_member_pairs[i + 2])
+            
+            # Validate coordinates
+            if longitude < -180.0 or longitude > 180.0:
+                raise ValueError(f"Invalid longitude: {longitude}")
+            if latitude < -85.05112878 or latitude > 85.05112878:
+                raise ValueError(f"Invalid latitude: {latitude}")
+            
+            if member not in entry["value"]:
+                new_locations += 1
+            
+            # Store geohash as score and coordinates for later retrieval
+            geohash = self._encode_geohash(longitude, latitude)
+            entry["value"][member] = (geohash, longitude, latitude)
+        
+        return new_locations
+    
+    def geopos(self, key: str, *members: str) -> List[Optional[tuple]]:
+        """Get coordinates of members. Returns list of (longitude, latitude) tuples or None."""
+        if key not in self._data:
+            return [None] * len(members)
+        
+        entry = self._data[key]
+        
+        # Check if the key has expired
+        if entry["expires_at"] is not None and time.time() > entry["expires_at"]:
+            del self._data[key]
+            return [None] * len(members)
+        
+        # Only work with sorted sets
+        if entry["type"] != "zset":
+            return [None] * len(members)
+        
+        result = []
+        for member in members:
+            if member in entry["value"]:
+                _, longitude, latitude = entry["value"][member]
+                result.append((longitude, latitude))
+            else:
+                result.append(None)
+        
+        return result
+    
+    def geodist(self, key: str, member1: str, member2: str, unit: str = "m") -> Optional[float]:
+        """Calculate distance between two members. Returns distance in specified unit."""
+        if key not in self._data:
+            return None
+        
+        entry = self._data[key]
+        
+        # Check if the key has expired
+        if entry["expires_at"] is not None and time.time() > entry["expires_at"]:
+            del self._data[key]
+            return None
+        
+        # Only work with sorted sets
+        if entry["type"] != "zset":
+            return None
+        
+        if member1 not in entry["value"] or member2 not in entry["value"]:
+            return None
+        
+        _, lon1, lat1 = entry["value"][member1]
+        _, lon2, lat2 = entry["value"][member2]
+        
+        # Calculate distance in meters
+        distance_m = self._haversine_distance(lon1, lat1, lon2, lat2)
+        
+        # Convert to requested unit
+        if unit.lower() == "m":
+            return distance_m
+        elif unit.lower() == "km":
+            return distance_m / 1000.0
+        elif unit.lower() == "mi":
+            return distance_m / 1609.344
+        elif unit.lower() == "ft":
+            return distance_m * 3.28084
+        else:
+            raise ValueError(f"Invalid unit: {unit}")
+    
+    def georadius(self, key: str, longitude: float, latitude: float, radius: float, unit: str = "m", withcoord: bool = False, withdist: bool = False, count: Optional[int] = None) -> List:
+        """Find members within radius of a point. Returns list of members with optional coordinates and distances."""
+        if key not in self._data:
+            return []
+        
+        entry = self._data[key]
+        
+        # Check if the key has expired
+        if entry["expires_at"] is not None and time.time() > entry["expires_at"]:
+            del self._data[key]
+            return []
+        
+        # Only work with sorted sets
+        if entry["type"] != "zset":
+            return []
+        
+        # Convert radius to meters
+        if unit.lower() == "km":
+            radius_m = radius * 1000.0
+        elif unit.lower() == "mi":
+            radius_m = radius * 1609.344
+        elif unit.lower() == "ft":
+            radius_m = radius / 3.28084
+        else:  # meters
+            radius_m = radius
+        
+        # Find members within radius
+        results = []
+        for member, (_, lon, lat) in entry["value"].items():
+            distance = self._haversine_distance(longitude, latitude, lon, lat)
+            if distance <= radius_m:
+                result = [member]
+                if withdist:
+                    # Convert distance back to requested unit
+                    if unit.lower() == "km":
+                        dist_value = distance / 1000.0
+                    elif unit.lower() == "mi":
+                        dist_value = distance / 1609.344
+                    elif unit.lower() == "ft":
+                        dist_value = distance * 3.28084
+                    else:  # meters
+                        dist_value = distance
+                    result.append(dist_value)
+                if withcoord:
+                    result.extend([lon, lat])
+                results.append(result)
+        
+        # Sort by distance if withdist is True
+        if withdist:
+            results.sort(key=lambda x: x[1])
+        
+        # Apply count limit
+        if count is not None and count > 0:
+            results = results[:count]
+        
+        return results
