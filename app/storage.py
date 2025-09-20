@@ -861,11 +861,7 @@ class InMemoryStorage(StorageBackend):
             latitude = float(longitude_latitude_member_pairs[i + 1])
             member = str(longitude_latitude_member_pairs[i + 2])
             
-            # Validate coordinates
-            if longitude < -180.0 or longitude > 180.0:
-                raise ValueError(f"Invalid longitude: {longitude}")
-            if latitude < -85.05112878 or latitude > 85.05112878:
-                raise ValueError(f"Invalid latitude: {latitude}")
+            # Coordinates are already validated in the command layer
             
             if member not in entry["value"]:
                 new_locations += 1

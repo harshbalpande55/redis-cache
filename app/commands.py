@@ -1323,22 +1323,31 @@ class GeoaddCommand(Command):
             return self.formatter.error("wrong number of arguments for 'geoadd' command")
         
         try:
-            # Convert coordinate strings to floats
+            # Convert coordinate strings to floats and validate
             converted_pairs = []
             for i in range(0, len(coordinate_pairs), 3):
-                longitude = float(coordinate_pairs[i])
-                latitude = float(coordinate_pairs[i + 1])
+                try:
+                    longitude = float(coordinate_pairs[i])
+                    latitude = float(coordinate_pairs[i + 1])
+                except ValueError:
+                    return self.formatter.error("value is not a valid float")
+                
+                # Validate longitude range (-180 to +180, inclusive)
+                if longitude < -180.0 or longitude > 180.0:
+                    return self.formatter.error(f"ERR invalid longitude,latitude pair {longitude:.6f},{latitude:.6f}")
+                
+                # Validate latitude range (-85.05112878 to +85.05112878, inclusive)
+                if latitude < -85.05112878 or latitude > 85.05112878:
+                    return self.formatter.error(f"ERR invalid longitude,latitude pair {longitude:.6f},{latitude:.6f}")
+                
                 member = coordinate_pairs[i + 2]
                 converted_pairs.extend([longitude, latitude, member])
             
             # Add geospatial locations
             new_locations = self.storage.geoadd(key, *converted_pairs)
             return self.formatter.integer(new_locations)
-        except ValueError as e:
-            if "Invalid longitude" in str(e) or "Invalid latitude" in str(e):
-                return self.formatter.error(str(e))
-            else:
-                return self.formatter.error("value is not a valid float")
+        except Exception as e:
+            return self.formatter.error("value is not a valid float")
     
     def get_name(self) -> str:
         return "GEOADD"
