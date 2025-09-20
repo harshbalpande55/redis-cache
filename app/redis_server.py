@@ -409,10 +409,9 @@ class RedisServer:
                                 writer.write(response)
                                 await writer.drain()
                             
-                            # After PSYNC, switch to replica mode and handle commands continuously
-                            print(f"PSYNC completed for client {client_id}, starting replica loop")
-                            await self._handle_replica_commands(reader, writer, client_id)
-                            return
+                            # Continue processing commands in replica mode
+                            print(f"PSYNC completed for client {client_id}, continuing in replica mode")
+                            continue
                         elif command == "REPLCONF" and len(args) > 0 and args[0].lower() == "ack":
                             # Handle REPLCONF ACK command and update replica offset
                             response = self.command_registry.execute_command(command, args)
@@ -443,6 +442,7 @@ class RedisServer:
                                 
                                 # Check if this is a replica connection
                                 is_replica = is_replica_connection or self.client_transactions[client_id].get('is_replica', False)
+                                print(f"Client {client_id}: command={command}, is_replica={is_replica}, is_replica_connection={is_replica_connection}")
                                 
                                 if not is_replica:
                                     # This is a regular client, propagate commands to replicas
