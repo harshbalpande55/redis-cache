@@ -764,44 +764,105 @@ class InMemoryStorage(StorageBackend):
     
     def _encode_geohash(self, longitude: float, latitude: float) -> int:
         """Encode longitude and latitude into a geohash score for sorted set storage."""
-        # Redis uses a 52-bit geohash encoding
-        # This is a simplified implementation
-        # In practice, Redis uses a more complex geohash algorithm
+        # Redis geohash algorithm - exact implementation from the provided code
+        
+        # Constants
+        MIN_LATITUDE = -85.05112878
+        MAX_LATITUDE = 85.05112878
+        MIN_LONGITUDE = -180
+        MAX_LONGITUDE = 180
+        
+        LATITUDE_RANGE = MAX_LATITUDE - MIN_LATITUDE
+        LONGITUDE_RANGE = MAX_LONGITUDE - MIN_LONGITUDE
         
         # Clamp coordinates to valid ranges
-        longitude = max(-180.0, min(180.0, longitude))
-        latitude = max(-85.05112878, min(85.05112878, latitude))
+        longitude = max(MIN_LONGITUDE, min(MAX_LONGITUDE, longitude))
+        latitude = max(MIN_LATITUDE, min(MAX_LATITUDE, latitude))
         
-        # Convert to geohash score (simplified)
-        # This is a basic implementation - Redis uses a more sophisticated algorithm
-        lon_bits = int((longitude + 180.0) * 1048576)  # 2^20
-        lat_bits = int((latitude + 85.05112878) * 1048576)  # 2^20
+        # Normalize to the range 0-2^26
+        normalized_latitude = 2**26 * (latitude - MIN_LATITUDE) / LATITUDE_RANGE
+        normalized_longitude = 2**26 * (longitude - MIN_LONGITUDE) / LONGITUDE_RANGE
         
-        # Interleave longitude and latitude bits
-        geohash = 0
-        for i in range(20):
-            geohash |= (lon_bits & (1 << i)) << i
-            geohash |= (lat_bits & (1 << i)) << (i + 1)
+        # Truncate to integers
+        normalized_latitude = int(normalized_latitude)
+        normalized_longitude = int(normalized_longitude)
         
-        return geohash
+        return self._interleave(normalized_latitude, normalized_longitude)
+    
+    def _interleave(self, x: int, y: int) -> int:
+        """Interleave two 32-bit integers into a 64-bit geohash."""
+        x = self._spread_int32_to_int64(x)
+        y = self._spread_int32_to_int64(y)
+        
+        y_shifted = y << 1
+        return x | y_shifted
+    
+    def _spread_int32_to_int64(self, v: int) -> int:
+        """Spread a 32-bit integer to 64-bit with interleaved bits."""
+        v = v & 0xFFFFFFFF
+        
+        v = (v | (v << 16)) & 0x0000FFFF0000FFFF
+        v = (v | (v << 8)) & 0x00FF00FF00FF00FF
+        v = (v | (v << 4)) & 0x0F0F0F0F0F0F0F0F
+        v = (v | (v << 2)) & 0x3333333333333333
+        v = (v | (v << 1)) & 0x5555555555555555
+        
+        return v
     
     def _decode_geohash(self, geohash: int) -> tuple:
         """Decode geohash score back to longitude and latitude."""
-        # Extract longitude and latitude bits
-        lon_bits = 0
-        lat_bits = 0
+        # Redis geohash decode algorithm - based on the provided decode function
         
-        for i in range(20):
-            if geohash & (1 << (i * 2)):
-                lon_bits |= (1 << i)
-            if geohash & (1 << (i * 2 + 1)):
-                lat_bits |= (1 << i)
+        # Constants
+        MIN_LATITUDE = -85.05112878
+        MAX_LATITUDE = 85.05112878
+        MIN_LONGITUDE = -180
+        MAX_LONGITUDE = 180
         
-        # Convert back to coordinates
-        longitude = (lon_bits / 1048576.0) - 180.0
-        latitude = (lat_bits / 1048576.0) - 85.05112878
+        LATITUDE_RANGE = MAX_LATITUDE - MIN_LATITUDE
+        LONGITUDE_RANGE = MAX_LONGITUDE - MIN_LONGITUDE
         
-        return longitude, latitude
+        # Align bits of both latitude and longitude to take even-numbered position
+        y = geohash >> 1
+        x = geohash
+        
+        # Compact bits back to 32-bit ints
+        grid_latitude_number = self._compact_int64_to_int32(x)
+        grid_longitude_number = self._compact_int64_to_int32(y)
+        
+        return self._convert_grid_numbers_to_coordinates(grid_latitude_number, grid_longitude_number)
+    
+    def _compact_int64_to_int32(self, v: int) -> int:
+        """Compact a 64-bit integer with interleaved bits back to a 32-bit integer."""
+        v = v & 0x5555555555555555
+        v = (v | (v >> 1)) & 0x3333333333333333
+        v = (v | (v >> 2)) & 0x0F0F0F0F0F0F0F0F
+        v = (v | (v >> 4)) & 0x00FF00FF00FF00FF
+        v = (v | (v >> 8)) & 0x0000FFFF0000FFFF
+        v = (v | (v >> 16)) & 0x00000000FFFFFFFF
+        return v
+    
+    def _convert_grid_numbers_to_coordinates(self, grid_latitude_number: int, grid_longitude_number: int) -> tuple:
+        """Convert grid numbers back to coordinates."""
+        # Constants
+        MIN_LATITUDE = -85.05112878
+        MAX_LATITUDE = 85.05112878
+        MIN_LONGITUDE = -180
+        MAX_LONGITUDE = 180
+        
+        LATITUDE_RANGE = MAX_LATITUDE - MIN_LATITUDE
+        LONGITUDE_RANGE = MAX_LONGITUDE - MIN_LONGITUDE
+        
+        # Calculate the grid boundaries
+        grid_latitude_min = MIN_LATITUDE + LATITUDE_RANGE * (grid_latitude_number / (2**26))
+        grid_latitude_max = MIN_LATITUDE + LATITUDE_RANGE * ((grid_latitude_number + 1) / (2**26))
+        grid_longitude_min = MIN_LONGITUDE + LONGITUDE_RANGE * (grid_longitude_number / (2**26))
+        grid_longitude_max = MIN_LONGITUDE + LONGITUDE_RANGE * ((grid_longitude_number + 1) / (2**26))
+        
+        # Calculate the center point of the grid cell
+        latitude = (grid_latitude_min + grid_latitude_max) / 2
+        longitude = (grid_longitude_min + grid_longitude_max) / 2
+        return (latitude, longitude)
     
     def _haversine_distance(self, lon1: float, lat1: float, lon2: float, lat2: float) -> float:
         """Calculate the great circle distance between two points on Earth in meters."""
