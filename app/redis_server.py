@@ -507,7 +507,7 @@ class RedisServer:
                                     self.replica_offsets[client_id] += command_bytes
                         
                         # Check if this is a blocking command that needs special handling
-                        if response.startswith(b"BLOCKING_REQUIRED"):
+                        if response and response.startswith(b"BLOCKING_REQUIRED"):
                             if command == "BLPOP":
                                 # Handle blocking BLPOP with timeout
                                 timeout_str = response.decode('utf-8').split(':')[1]
