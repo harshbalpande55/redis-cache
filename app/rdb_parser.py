@@ -48,6 +48,11 @@ class RDBParser:
                 if opcode == b'\xfe':  # SELECTDB
                     db_number = self._read_length(stream)
                     print(f"Selecting database {db_number}")
+                elif opcode == b'\xfb':  # RESIZEDB
+                    # Read hash table size and expiry hash table size
+                    hash_table_size = self._read_length(stream)
+                    expiry_hash_table_size = self._read_length(stream)
+                    print(f"ResizeDB: hash_table_size={hash_table_size}, expiry_hash_table_size={expiry_hash_table_size}")
                 elif opcode == b'\xff':  # EOF
                     break
                 elif opcode == b'\xfd':  # EXPIRETIME_MS

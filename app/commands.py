@@ -1036,3 +1036,37 @@ class BgsaveCommand(Command):
     
     def get_name(self) -> str:
         return "BGSAVE"
+
+
+class KeysCommand(Command):
+    """KEYS command implementation for pattern matching."""
+    
+    def execute(self, args: List[str]) -> bytes:
+        error = self.validate_args(args, 1)
+        if error:
+            return error
+        
+        pattern = args[0]
+        
+        # Get all keys from storage
+        all_keys = []
+        if hasattr(self.storage, '_data'):
+            # Access the internal data structure to get all keys
+            for key in self.storage._data.keys():
+                # Check if key hasn't expired
+                if self.storage.exists(key):
+                    all_keys.append(key)
+        
+        # Simple pattern matching (only supports * wildcard for now)
+        if pattern == "*":
+            # Return all keys
+            matching_keys = all_keys
+        else:
+            # For other patterns, we'd need more sophisticated matching
+            # For now, just return exact matches
+            matching_keys = [key for key in all_keys if key == pattern]
+        
+        return self.formatter.array([key.encode() for key in matching_keys])
+    
+    def get_name(self) -> str:
+        return "KEYS"
