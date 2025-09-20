@@ -877,32 +877,29 @@ class WaitCommand(Command):
         if numreplicas == 0:
             return self.formatter.integer(0)
         
-        # Send REPLCONF GETACK to all replicas
-        ack_count = 0
+        # Get the current replication offset at the time WAIT was called
         current_offset = self.server.master_repl_offset
         
-        # Send GETACK to all replicas
+        # Send REPLCONF GETACK to all replicas
         for reader, writer, offset in self.server.connected_replicas:
             try:
                 getack_command = "*3\r\n$8\r\nREPLCONF\r\n$6\r\nGETACK\r\n$1\r\n*\r\n"
                 writer.write(getack_command.encode())
-                writer.flush()
+                # Note: We can't use await here since this is not an async method
+                # The flush will happen when the connection is processed
             except Exception as e:
                 print(f"Failed to send GETACK to replica: {e}")
         
         # Wait for acknowledgments with timeout
         start_time = time.time()
         while (time.time() - start_time) * 1000 < timeout:
-            # Check if we have enough acknowledgments
-            if ack_count >= numreplicas:
-                break
-            
-            # Count replicas that have acknowledged up to current offset
+            # Count replicas that have acknowledged up to the current offset
             ack_count = 0
             for reader, writer, offset in self.server.connected_replicas:
                 if offset >= current_offset:
                     ack_count += 1
             
+            # Check if we have enough acknowledgments
             if ack_count >= numreplicas:
                 break
             
