@@ -67,13 +67,8 @@ class RDBParser:
                                 'expires_at': expire_time / 1000.0  # Convert to seconds
                             }
                 elif opcode == b'\xfc':  # EXPIRETIME
-                    # Read the timestamp - it appears to be 9 bytes based on hexdump analysis
-                    timestamp_bytes = stream.read(9)
-                    # Parse the middle 4 bytes as the Unix timestamp (bytes 1-4)
-                    if len(timestamp_bytes) >= 5:
-                        expire_time = struct.unpack('<I', timestamp_bytes[1:5])[0]
-                    else:
-                        expire_time = 0
+                    # According to Redis RDB format, EXPIRETIME is followed by 4-byte Unix timestamp
+                    expire_time = struct.unpack('<I', stream.read(4))[0]
                     
                     # The key-value pair follows directly after the timestamp (no opcode)
                     # Read key and value directly
