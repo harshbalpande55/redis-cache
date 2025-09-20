@@ -67,8 +67,15 @@ class RDBParser:
                                 'expires_at': expire_time / 1000.0  # Convert to seconds
                             }
                 elif opcode == b'\xfc':  # EXPIRETIME
-                    # Read the timestamp as a 4-byte value
-                    expire_time = struct.unpack('<I', stream.read(4))[0]
+                    # Read the timestamp - it might be length-encoded
+                    timestamp_length = self._read_length(stream)
+                    if timestamp_length == 4:
+                        expire_time = struct.unpack('<I', stream.read(4))[0]
+                    elif timestamp_length == 8:
+                        expire_time = struct.unpack('<Q', stream.read(8))[0]
+                    else:
+                        # Handle other timestamp formats
+                        expire_time = 0
                     
                     # Read the next opcode for the actual key
                     key_opcode = stream.read(1)
