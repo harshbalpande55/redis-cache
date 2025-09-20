@@ -1094,3 +1094,30 @@ class SubscribeCommand(Command):
     
     def get_name(self) -> str:
         return "SUBSCRIBE"
+
+
+class PublishCommand(Command):
+    """PUBLISH command implementation for Redis pub/sub."""
+    
+    def __init__(self, storage: StorageBackend, server=None):
+        super().__init__(storage)
+        self.server = server
+    
+    def execute(self, args: List[str]) -> bytes:
+        if len(args) != 2:
+            return self.formatter.error("wrong number of arguments for 'publish' command")
+        
+        channel = args[0]
+        message = args[1]
+        
+        if not self.server:
+            return self.formatter.error("ERR Server not available for PUBLISH command")
+        
+        # Get the number of subscribers for this channel
+        subscriber_count = len(self.server.subscriptions.get(channel, set()))
+        
+        # Return the number of subscribers as a RESP integer
+        return self.formatter.integer(subscriber_count)
+    
+    def get_name(self) -> str:
+        return "PUBLISH"

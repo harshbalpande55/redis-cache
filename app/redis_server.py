@@ -14,7 +14,7 @@ from app.rdb_parser import RDBParser
 from app.commands import (
     PingCommand, EchoCommand, SetCommand, GetCommand, 
     RpushCommand, DelCommand, ExistsCommand, LrangeCommand, LpushCommand,
-    LlenCommand, LpopCommand, BlpopCommand, XaddCommand, XrangeCommand, XreadCommand, TypeCommand, IncrCommand, InfoCommand, ReplconfCommand, PsyncCommand, WaitCommand, ConfigCommand, SaveCommand, BgsaveCommand, KeysCommand, SubscribeCommand
+    LlenCommand, LpopCommand, BlpopCommand, XaddCommand, XrangeCommand, XreadCommand, TypeCommand, IncrCommand, InfoCommand, ReplconfCommand, PsyncCommand, WaitCommand, ConfigCommand, SaveCommand, BgsaveCommand, KeysCommand, SubscribeCommand, PublishCommand
 )
 
 
@@ -108,6 +108,7 @@ class RedisServer:
             BgsaveCommand(self.storage, self),
             KeysCommand(self.storage),
             SubscribeCommand(self.storage, self),
+            PublishCommand(self.storage, self),
             # MULTI and EXEC are now handled directly in handle_client
         ]
         
@@ -181,7 +182,7 @@ class RedisServer:
         """Check if a command is allowed in subscribed mode."""
         allowed_commands = {
             'SUBSCRIBE', 'UNSUBSCRIBE', 'PSUBSCRIBE', 'PUNSUBSCRIBE', 
-            'PING', 'QUIT', 'RESET'
+            'PING', 'QUIT', 'RESET', 'PUBLISH'
         }
         return command.upper() in allowed_commands
     
