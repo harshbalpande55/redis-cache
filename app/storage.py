@@ -953,6 +953,9 @@ class InMemoryStorage(StorageBackend):
         for member in members:
             if member in entry["value"]:
                 geohash = entry["value"][member]
+                # Convert geohash to integer if it's a float
+                if isinstance(geohash, float):
+                    geohash = int(geohash)
                 latitude, longitude = self._decode_geohash(geohash)
                 result.append((longitude, latitude))
             else:
@@ -981,6 +984,12 @@ class InMemoryStorage(StorageBackend):
         
         geohash1 = entry["value"][member1]
         geohash2 = entry["value"][member2]
+        
+        # Convert geohash to integer if it's a float
+        if isinstance(geohash1, float):
+            geohash1 = int(geohash1)
+        if isinstance(geohash2, float):
+            geohash2 = int(geohash2)
         
         lat1, lon1 = self._decode_geohash(geohash1)
         lat2, lon2 = self._decode_geohash(geohash2)
@@ -1029,6 +1038,9 @@ class InMemoryStorage(StorageBackend):
         # Find members within radius
         results = []
         for member, geohash in entry["value"].items():
+            # Convert geohash to integer if it's a float
+            if isinstance(geohash, float):
+                geohash = int(geohash)
             lat, lon = self._decode_geohash(geohash)
             distance = self._haversine_distance(longitude, latitude, lon, lat)
             if distance <= radius_m:

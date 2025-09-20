@@ -1372,11 +1372,11 @@ class GeoposCommand(Command):
                 # Return null array for missing locations
                 result.append(self.formatter.array(None))
             else:
-                # For this stage, hardcode the returned values to "0"
-                # We'll implement actual coordinate decoding in later stages
+                # Decode actual coordinates from geohash
+                longitude, latitude = coord
                 coord_array = [
-                    self.formatter.bulk_string("0"),
-                    self.formatter.bulk_string("0")
+                    self.formatter.bulk_string(str(longitude)),
+                    self.formatter.bulk_string(str(latitude))
                 ]
                 result.append(self.formatter.array(coord_array))
         
