@@ -1369,7 +1369,8 @@ class GeoposCommand(Command):
         result = []
         for coord in coordinates:
             if coord is None:
-                result.append(self.formatter.bulk_string(None))
+                # Return null array for missing locations
+                result.append(self.formatter.array(None))
             else:
                 # For this stage, hardcode the returned values to "0"
                 # We'll implement actual coordinate decoding in later stages
