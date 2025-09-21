@@ -58,21 +58,3 @@ You can fix this by installing Python 3.8 locally and using that.
 
 If you'd like to use a different version of Python, change the `buildpack` value
 in `codecrafters.yml`.
-# Testing next transaction stage
-# Testing next transaction stage
-# Testing next transaction stage
-# Testing next transaction stage
-# Testing next stage
-# Testing next stage
-# Testing next stage
-# Testing next stage
-# Testing next stage
-# Testing next stage
-# Testing next stage
-# Testing next stage
-# Testing next stage
-# Testing next stage
-# Testing next stage
-# Testing next stage
-# Testing next stage
-# Testing next stage
